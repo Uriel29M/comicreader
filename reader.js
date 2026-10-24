@@ -1744,17 +1744,49 @@ function openReader(item, options = {}) {
         image.complete && image.naturalWidth > 0 && !image.closest(".reader-loading")
       );
     };
+    let readReadyObserver = null;
+    let readReadyTimer = null;
+    const stopReadReadyWatch = () => {
+      readReadyObserver?.disconnect();
+      readReadyObserver = null;
+      if (readReadyTimer !== null) {
+        window.clearInterval(readReadyTimer);
+        readReadyTimer = null;
+      }
+    };
     const markReaderReady = () => {
-      if (!readerHasRenderedPage()) return;
+      if (readerContentReady || !readerHasRenderedPage()) return;
       readerContentReady = true;
+      stopReadReadyWatch();
       updateReadButtonAvailability();
     };
-    // Capture image load because the final-page card and some archive renderers
-    // finish by appending an image without another page-change callback.
+    // Some renderers append an image whose bytes are already cached; its load
+    // event can fire before it enters the DOM. Watch DOM changes and recheck
+    // readiness so the button unlocks only after a real page is rendered.
     body.addEventListener("load", event => {
       const image = event.target;
       if (image?.tagName === "IMG" && image.complete && image.naturalWidth > 0) markReaderReady();
     }, true);
+    if (toggleReadButton && "MutationObserver" in window) {
+      readReadyObserver = new MutationObserver(() => markReaderReady());
+      readReadyObserver.observe(body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["src", "width", "height", "class"]
+      });
+    }
+    if (toggleReadButton) {
+      // Fallback for renderers that update pixels without a DOM mutation/event.
+      readReadyTimer = window.setInterval(() => {
+        if (!overlay.isConnected) {
+          stopReadReadyWatch();
+          return;
+        }
+        markReaderReady();
+      }, 250);
+      markReaderReady();
+    }
     toggleReadButton?.addEventListener("click", async event => {
       const button = event.currentTarget;
       if (!readerContentReady || !readStatusReady || button.dataset.savingRead === "true") return;
