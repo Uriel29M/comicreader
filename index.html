@@ -195,36 +195,67 @@
       const urls = pageURLs(data.pages);
       const metadataPages = pageURLs(data.telegramPages);
       const explicitPageCount = Number(data.pageCount || data.pagesCount || 0);
-      const pageCount = Math.min(10000, Math.max(0, Number.isSafeInteger(explicitPageCount) ? explicitPageCount : 0, urls.length, metadataPages.length));
-      const sourceURL = String(data.sourceUrl || data.fileUrl || data.url || "").trim();
-      const backendId = String(data.telegramItemId || data.itemId || data.editionId || data.id || "");
-      const itemId = backendId || ("comicreader-" + hash(JSON.stringify(data)));
+      const catalogId = String(data.id || data.itemId || data.editionId || data.telegramItemId || "");
+      const itemId = catalogId || ("comicreader-" + hash(JSON.stringify(data)));
+      const defaults = Array.isArray(window.DEFAULT_LIBRARY) ? window.DEFAULT_LIBRARY : [];
+      const existingItem = defaults.find(entry => String(entry.id) === itemId) || {};
+      const existingPageCount = Array.isArray(existingItem.telegramPages) ? existingItem.telegramPages.length : 0;
+      const pageCount = Math.min(10000, Math.max(0, Number.isSafeInteger(explicitPageCount) ? explicitPageCount : 0, urls.length, metadataPages.length, existingPageCount));
+      const suppliedSourceURL = String(data.sourceUrl || data.fileUrl || data.url || "").trim();
+      const sourceURL = suppliedSourceURL || String(existingItem.fileUrl || "").trim();
+      const backendId = String(data.telegramItemId || data.itemId || data.editionId || data.id || itemId);
       const hasPageSource = urls.length > 0 || pageCount > 0;
       if (!sourceURL && !hasPageSource) throw new Error("A edição não informa um arquivo (PDF/CBZ/CBR) nem páginas para ler.");
 
+      const title = String(data.title || data.name || existingItem.title || existingItem.name || "Quadrinho");
       const item = {
+        ...existingItem,
         id: itemId,
-        title: String(data.title || data.name || "Quadrinho"),
-        name: String(data.title || data.name || "Quadrinho"),
-        seriesTitle: String(data.seriesTitle || data.series || ""),
-        issue: String(data.issue || ""),
-        year: Number(data.year) || "",
-        type: data.type === "manga" ? "manga" : "comic",
-        format: String(data.format || (urls.length || pageCount ? "images" : "")).replace(/^\./, "").toLowerCase(),
+        title,
+        name: String(data.name || data.title || existingItem.name || existingItem.title || title),
+        seriesTitle: String(data.seriesTitle || data.series || existingItem.seriesTitle || ""),
+        issue: String(data.issue ?? existingItem.issue ?? ""),
+        year: Number(data.year ?? existingItem.year) || "",
+        type: data.type === "manga" || existingItem.type === "manga" ? "manga" : (existingItem.type || "comic"),
+        format: String(data.format || (hasPageSource ? "images" : existingItem.format || "")).replace(/^\./, "").toLowerCase(),
         fileUrl: sourceURL,
-        coverUrl: String(data.coverUrl || data.cover || ""),
-        description: String(data.description || ""),
-        publisher: String(data.publisher || ""),
-        telegramUrl: String(data.telegramUrl || ""),
-        telegramFileId: String(data.telegramFileId || ""),
+        coverUrl: String(data.coverUrl || data.cover || existingItem.coverUrl || existingItem.cover || ""),
+        description: String(data.description || existingItem.description || ""),
+        publisher: String(data.publisher || existingItem.publisher || ""),
+        telegramUrl: String(data.telegramUrl || existingItem.telegramUrl || ""),
+        telegramFileId: String(data.telegramFileId || existingItem.telegramFileId || ""),
         local: false
       };
       if (hasPageSource) item.telegramPages = Array.from({ length: pageCount }, (_, index) => index + 1);
 
-      const defaults = Array.isArray(window.DEFAULT_LIBRARY) ? window.DEFAULT_LIBRARY : [];
       window.DEFAULT_LIBRARY = [...defaults.filter(entry => String(entry.id) !== itemId), item];
       if (window.PUBLISHED_CATALOG?.library) {
         window.PUBLISHED_CATALOG.library = window.PUBLISHED_CATALOG.library.filter(entry => String(entry.id) !== itemId);
+      }
+
+      // Keep the link's edition source authoritative while the live catalog refreshes.
+      const sourceFields = new Set();
+      if (suppliedSourceURL) sourceFields.add("fileUrl");
+      if (hasPageSource) {
+        sourceFields.add("telegramPages");
+        sourceFields.add("format");
+      }
+      ["telegramUrl", "telegramFileId", "telegramFileName", "telegramFileSize", "backupUrls", "telegramPageFiles", "telegramPagesPending", "telegramPagesMigration"].forEach(field => {
+        if (Object.prototype.hasOwnProperty.call(data, field)) sourceFields.add(field);
+      });
+      if (window.BancaCatalogSync && typeof window.BancaCatalogSync.merge === "function") {
+        const catalogSync = window.BancaCatalogSync;
+        const originalMerge = catalogSync.merge.bind(catalogSync);
+        catalogSync.merge = (library, incoming) => {
+          const merged = originalMerge(library, incoming);
+          const currentItem = merged.find(entry => String(entry.id) === itemId);
+          if (currentItem) {
+            sourceFields.forEach(field => { currentItem[field] = item[field]; });
+            if (data.title || data.name) currentItem.title = item.title;
+            if (data.seriesTitle || data.series) currentItem.seriesTitle = item.seriesTitle;
+          }
+          return merged;
+        };
       }
 
       const helpers = window.BancaTelegramPages;
