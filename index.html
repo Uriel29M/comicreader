@@ -1,5 +1,55 @@
 <!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#101114"><title>ComicReader</title><link rel="stylesheet" href="./reader.css"></head>
-<body><header class="toolbar"><a class="brand" href="./">Comic<span>Reader</span></a><div class="edition-title"><strong id="editionTitle">Leitor de quadrinhos</strong><small id="editionMeta">PDF · CBZ · imagens</small></div><div class="toolbar-actions"><button id="scrollMode" aria-pressed="false">Rolagem</button><button id="spreadMode" aria-pressed="false">2 páginas</button><button id="fitMode">Ajustar</button></div></header>
-<main id="reader" class="reader" aria-label="Páginas da edição"><div id="status" class="status">Preparando leitor…</div><div id="pages" class="pages"></div></main>
-<footer class="controls"><button id="previous" aria-label="Página anterior">‹</button><span id="pageCounter">— / —</span><input id="pageInput" aria-label="Ir para página" type="number" min="1" value="1"><button id="goPage">Ir</button><button id="next" aria-label="Próxima página">›</button></footer><div id="error" class="error" hidden></div><script type="module" src="./reader.js"></script></body></html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#09090b">
+  <title>Leitor — Banca Digital</title>
+  <link rel="stylesheet" href="https://uriel29m.github.io/bancadigital/css/style.css?v=2.2.10.565-telegram-preload-all">
+  <link rel="stylesheet" href="./reader.css?v=2">
+</head>
+<body>
+  <section class="reader-overlay" aria-label="Leitor de quadrinhos">
+    <div class="reader-top">
+      <div class="reader-top-primary">
+        <button class="small-btn" id="closeReader" type="button">← Voltar</button>
+        <div class="reader-title" id="editionTitle">Carregando edição…</div>
+        <button class="small-btn" id="readerHome" type="button">Início</button>
+      </div>
+      <div class="reader-top-reading">
+        <select class="small-btn" id="reading-mode-select" aria-label="Modo de leitura">
+          <option value="single-page">Página por página</option>
+          <option value="double-page">Duas páginas</option>
+          <option value="continuous-scroll">Rolagem contínua</option>
+        </select>
+        <button class="small-btn" id="reading-direction-btn" type="button" hidden>↔ Ocidental</button>
+        <button class="small-btn" id="toggleCover" type="button" hidden>Ignorar capa</button>
+        <button class="small-btn" id="toggleGrayscale" type="button">Preto e branco</button>
+        <button class="small-btn" id="fitMode" type="button" data-reader-zoom>Ajustar</button>
+      </div>
+      <div class="reader-top-actions"></div>
+    </div>
+    <main id="reader" class="reader-body" aria-label="Páginas da edição">
+      <div id="status" class="reader-loading"><span class="reader-loading-label">Preparando leitor…</span></div>
+      <div id="pages" class="pages"></div>
+    </main>
+    <div class="reader-bottom-controls">
+      <div class="reader-series-controls reader-series-prev" id="reader-series-prev"></div>
+      <div class="reader-controls" id="reader-controls">
+        <button id="previous" type="button" aria-label="Página anterior">‹</button>
+        <span id="pageCounter" class="reader-page">— / —</span>
+        <input id="pageInput" aria-label="Ir para página" type="number" min="1" value="1">
+        <button id="goPage" type="button">Ir</button>
+        <button id="next" type="button" aria-label="Próxima página">›</button>
+      </div>
+      <div class="reader-series-controls reader-series-next" id="reader-series-next"></div>
+    </div>
+    <div class="reader-footer">
+      <span></span>
+      <div class="reader-footer-actions"><span id="editionMeta">PDF · CBZ · CBR · imagens</span></div>
+      <div class="reader-comments" id="error" hidden></div>
+    </div>
+  </section>
+  <script type="module" src="./reader.js?v=2"></script>
+</body>
+</html>
