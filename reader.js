@@ -507,11 +507,11 @@ async function openLocalComicFile(file) {
 
 const catalogScriptLoads = new Map();
 const CATALOG_SCRIPTS = [
-  "js/data/dc-comics/recentes.js",
-  "js/data/dc-comics/black-label.js",
-  "js/data/dc-comics/milestone.js",
-  "js/data/dc-comics/novos-52.js",
-  "js/catalog-identity.js"
+  "js/data/dc-comics/recentes.js?v=2.2.7.54",
+  "js/data/dc-comics/black-label.js?v=1.0.14",
+  "js/data/dc-comics/milestone.js?v=1.1.1",
+  "js/data/dc-comics/novos-52.js?v=1.0.26",
+  "js/catalog-identity.js?v=1"
 ];
 function loadBancaScript(pathOrUrl) {
   const src = /^https?:\/\//i.test(pathOrUrl) ? pathOrUrl : new URL(pathOrUrl, BANCADIGITAL_BASE).href;
@@ -567,7 +567,7 @@ function parseBancaEditionId(value) {
 }
 async function findStaticBancaEdition(id) {
   for (const path of CATALOG_SCRIPTS) {
-    if (path === "js/catalog-identity.js") {
+    if (path.split("?")[0] === "js/catalog-identity.js") {
       if (!window.__comicReaderCatalogIdentityLoaded) {
         try { await loadBancaScript(path); } catch (error) { console.warn(error); }
         window.__comicReaderCatalogIdentityLoaded = true;
@@ -581,7 +581,7 @@ async function findStaticBancaEdition(id) {
     if (found) {
       // Identity normalization is safe and keeps the official series IDs intact.
       if (!window.__comicReaderCatalogIdentityLoaded) {
-        try { await loadBancaScript("js/catalog-identity.js"); } catch (error) { console.warn(error); }
+        try { await loadBancaScript(CATALOG_SCRIPTS.find(script => script.split("?")[0] === "js/catalog-identity.js") || "js/catalog-identity.js?v=1"); } catch (error) { console.warn(error); }
         window.__comicReaderCatalogIdentityLoaded = true;
       }
       return (window.DEFAULT_LIBRARY || []).find(item => String(item?.id || "") === String(id)) || found;
