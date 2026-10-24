@@ -155,6 +155,12 @@
     });
     async function prepare() {
       window.CATALOG_VERSION = "comicreader-standalone-v1";
+      // Keep the URL on index.html: the original SPA otherwise interprets /comicreader/ as a username route.
+      if (window.location.pathname.replace(/\/+$/, "") === "/comicreader") {
+        const canonicalURL = new URL(window.location.href);
+        canonicalURL.pathname = "/comicreader/index.html";
+        window.history.replaceState(window.history.state, "", canonicalURL.pathname + canonicalURL.search + canonicalURL.hash);
+      }
       const hasPayload = ["data", "manifest", "pages", "src"].some(key => params.has(key));
       if (!hasPayload && !params.has("ler")) {
         window.location.replace("https://uriel29m.github.io/bancadigital/");
