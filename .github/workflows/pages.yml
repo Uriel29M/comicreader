@@ -23,7 +23,6 @@ jobs:
         run: node --check reader.js
       - name: Configure Pages
         uses: actions/configure-pages@v5
-        with:
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
         with:
