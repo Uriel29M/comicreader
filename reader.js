@@ -618,7 +618,17 @@ async function loadCatalogOverride(id) {
   }
   return data;
 }
-async function openBancaEditionLink(value) {
+function safeBancaReturnUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    if (url.protocol !== "https:" || url.hostname.toLowerCase() !== "uriel29m.github.io" || !/^\/bancadigital\/?$/.test(url.pathname)) return "";
+    url.searchParams.delete("ler");
+    url.searchParams.delete("edicao");
+    url.searchParams.delete("id");
+    return url.href;
+  } catch { return ""; }
+}
+async function openBancaEditionLink(value, options = {}) {
   const id = parseBancaEditionId(value);
   const status = $("#banca-link-status");
   if (status) status.textContent = "Buscando edição " + id + "…";
@@ -659,11 +669,21 @@ async function openBancaEditionLink(value) {
   readerIsOpen = false;
   activeReaderCleanup?.();
   activeReaderCleanup = null;
-  openReader(normalized, {routeSync:true, skipCover: normalized.skipCover === true, standalone:true});
+  const readerOptions = {routeSync:true, skipCover: normalized.skipCover === true, standalone:true};
+  const returnTo = safeBancaReturnUrl(options.returnTo);
+  if (returnTo) readerOptions.returnTo = returnTo;
+  openReader(normalized, readerOptions);
 }
 async function bootStandaloneReader() {
   const fallback = $("#reader-overlay");
   try {
+    const linkedEditionId = params.get("ler") || params.get("edicao") || params.get("id");
+    if (linkedEditionId) {
+      const officialLink = new URL(BANCADIGITAL_BASE);
+      officialLink.searchParams.set("ler", linkedEditionId);
+      await openBancaEditionLink(officialLink.href, {returnTo: params.get("returnTo")});
+      return;
+    }
     const edition = await parseEditionPayload();
     if (edition.telegramBaseUrl && !window.BANCA_SUPABASE_URL) {
       window.BANCA_SUPABASE_URL = String(edition.telegramBaseUrl).replace(/\/+$/, "");
@@ -1045,6 +1065,11 @@ function openReader(item, options = {}) {
     };
     closeReaderButton.onclick = () => {
       cleanupReader();
+      const returnTo = safeBancaReturnUrl(options.returnTo);
+      if (returnTo) {
+        window.location.assign(returnTo);
+        return;
+      }
       if (item.local || options.standalone) {
         readerExitToHome = false;
         showEmptyReader(item.local
