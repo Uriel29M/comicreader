@@ -353,12 +353,100 @@ function normalizeItem(edition) {
 }
 function showEmptyReader(message) {
   const body = $("#reader-body");
-  if (body) body.innerHTML = readerLoadingMarkup(message);
   const title = $("#editionTitle");
-  if (title) title.textContent = "Leitor de quadrinhos";
   const counter = $("#reader-controls");
-  if (counter) counter.innerHTML = '<span class="reader-page">— / —</span>';
+  if (title) title.textContent = "Leitor de quadrinhos";
+  if (counter) counter.innerHTML = '<button id="previous" type="button" aria-label="Página anterior" disabled>‹</button><span class="reader-page">— / —</span><button id="next" type="button" aria-label="Próxima página" disabled>›</button>';
+  if (!body) return;
+
+  const panel = document.createElement("div");
+  panel.className = "empty";
+  panel.style.cssText = "width:min(100% - 32px, 650px);margin:auto;padding:28px 20px;text-align:center;box-sizing:border-box";
+
+  const heading = document.createElement("h2");
+  heading.textContent = "Abrir quadrinho do computador";
+  heading.style.cssText = "margin:0 0 10px;color:#f1f1f3";
+
+  const description = document.createElement("p");
+  description.textContent = message || "Escolha um arquivo do seu computador para ler aqui.";
+  description.style.cssText = "margin:0 auto 12px;max-width:520px;color:#b7b7bf";
+
+  const formats = document.createElement("p");
+  formats.textContent = "Formatos aceitos: PDF, CBZ, CBR, JPG, PNG, WEBP e GIF.";
+  formats.style.cssText = "margin:0 auto 18px;color:#92929b;font-size:12px";
+
+  const input = document.createElement("input");
+  input.type = "file";
+  input.id = "local-comic-file";
+  input.accept = ".pdf,.cbz,.cbr,.jpg,.jpeg,.png,.webp,.gif,application/pdf,image/jpeg,image/png,image/webp,image/gif";
+  input.setAttribute("aria-label", "Escolher arquivo de quadrinho");
+  input.style.cssText = "position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0";
+
+  const chooseButton = document.createElement("button");
+  chooseButton.type = "button";
+  chooseButton.className = "btn btn-primary";
+  chooseButton.textContent = "Escolher arquivo do computador";
+  chooseButton.style.cssText = "display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:10px 18px;cursor:pointer";
+  chooseButton.addEventListener("click", () => input.click());
+
+  const filename = document.createElement("div");
+  filename.style.cssText = "margin-top:12px;color:#b7b7bf;font-size:12px;overflow-wrap:anywhere";
+  filename.textContent = "O arquivo será aberto localmente no navegador; ele não será enviado para um servidor.";
+
+  input.addEventListener("change", () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    filename.textContent = "Abrindo " + file.name + "…";
+    chooseButton.disabled = true;
+    void openLocalComicFile(file).catch(error => {
+      chooseButton.disabled = false;
+      filename.textContent = "";
+      showEmptyReader(error?.message || "Não foi possível abrir esse arquivo.");
+    });
+  });
+
+  panel.append(heading, description, formats, input, chooseButton, filename);
+  body.replaceChildren(panel);
+  body.classList.remove("continuous", "reader-grayscale", "reader-gesture-zoom");
+  body.style.removeProperty("--reader-zoom");
+  body.style.removeProperty("--reader-pan-x");
+  body.style.removeProperty("--reader-pan-y");
 }
+async function openLocalComicFile(file) {
+  const format = extension(file?.name || "");
+  const supported = ["pdf", "cbz", "cbr", "jpg", "jpeg", "png", "webp", "gif"];
+  if (!file || !supported.includes(format)) {
+    showEmptyReader("Esse formato não é compatível. Escolha um PDF, CBZ, CBR ou arquivo de imagem.");
+    return;
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  const item = {
+    id: "local-file-" + Date.now(),
+    title: file.name.replace(/\.[^.]+$/, "") || file.name,
+    name: file.name,
+    fileName: file.name,
+    format,
+    file,
+    fileUrl: objectUrl,
+    sourceUrl: objectUrl,
+    local: true,
+    backupUrls: []
+  };
+
+  try {
+    state.readerItemId = item.id;
+    readerIsOpen = false;
+    activeReaderCleanup?.();
+    activeReaderCleanup = null;
+    // Mantém a tela de seleção sob o leitor para que "Voltar" retorne ao seletor.
+    openReader(item, {routeSync: true, localObjectUrl: objectUrl});
+  } catch (error) {
+    URL.revokeObjectURL(objectUrl);
+    throw error;
+  }
+}
+
 async function bootStandaloneReader() {
   const fallback = $("#reader-overlay");
   try {
@@ -746,6 +834,10 @@ function openReader(item, options = {}) {
       if (readerExitToHome) {
         readerExitToHome = false;
         navigate({ pagina: state.session?.offline ? "downloads" : "" }, true);
+        return;
+      }
+      if (item.local) {
+        showEmptyReader("Arquivo fechado. Escolha outro arquivo do computador para continuar lendo.");
         return;
       }
       // A rota do leitor já foi adicionada ao histórico ao abrir o gibi.
