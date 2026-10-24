@@ -1,5 +1,6 @@
 /* O visual do leitor vem do CSS original da Banca Digital. Este arquivo só integra
    o renderer independente às classes e à geometria usadas pelo leitor original. */
+*[hidden] { display: none !important; }
 html, body {
   width: 100%;
   height: 100%;
