@@ -1681,16 +1681,22 @@ function openReader(item, options = {}) {
         window.location.assign(returnTo);
         return;
       }
-      if (item.local || options.standalone) {
-        readerExitToHome = false;
-        showEmptyReader(item.local
-          ? "Arquivo fechado. Escolha outro arquivo do computador ou cole um link da Banca Digital."
-          : "Edição fechada. Cole outro link da Banca Digital ou escolha um arquivo do computador.");
-        return;
-      }
       if (readerExitToHome) {
         readerExitToHome = false;
-        navigate({ pagina: state.session?.offline ? "downloads" : "" }, true);
+        // "Início" sempre retorna à Banca, mesmo se o leitor foi aberto em uma
+        // aba independente ou se a navegação interna ficou inconsistente.
+        window.location.assign(BANCADIGITAL_BASE);
+        return;
+      }
+      if (options.standalone) {
+        // O leitor independente não deve depender do histórico da aba:
+        // links diretos, erros de carregamento e abas abertas sem origem
+        // precisam sempre ter uma saída funcional para a Banca Digital.
+        window.location.assign(BANCADIGITAL_BASE);
+        return;
+      }
+      if (item.local) {
+        showEmptyReader("Arquivo fechado. Escolha outro arquivo do computador ou cole um link da Banca Digital.");
         return;
       }
       // A rota do leitor já foi adicionada ao histórico ao abrir o gibi.
