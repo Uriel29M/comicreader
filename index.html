@@ -1,392 +1,55 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
-  <base href="https://uriel29m.github.io/bancadigital/">
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" type="image/png" href="assets/barracavermelhaicon.png?v=2">
-  <link rel="apple-touch-icon" href="assets/barracabrancaicon.png?v=1">
-  <title>Banca Digital — Leitor</title>
-  <meta name="description" content="Leitor original da Banca Digital para quadrinhos e mangás.">
-    <link rel="stylesheet" href="css/style.css?v=2.2.10.267-telegram-minimize-click-through">
-  <style>
-    @media (hover: hover) and (pointer: fine) {
-      .card-wrap > .card:hover > .card-completed,
-      .card-wrap > .card:focus-within > .card-completed {
-        top: 32px;
-        left: 9px;
-        padding: 4px 7px;
-        border: 0;
-        border-radius: 5px;
-        background: rgba(0,0,0,.72);
-      }
-    }
-  </style>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#09090b">
+  <title>Leitor — Banca Digital</title>
+  <link rel="stylesheet" href="https://uriel29m.github.io/bancadigital/css/style.css?v=2.2.10.565-telegram-preload-all">
+  <link rel="stylesheet" href="./reader.css?v=3">
 </head>
 <body>
-  <div id="app">
-    <header class="topbar">
-      <a class="brand" href="#" data-action="home">
-        <span class="brand-mark"><img class="brand-logo" src="assets/barracabrancaicon.png?v=1" alt="Banca Digital"></span>
-        <span>Banca<span class="brand-accent">Digital</span></span>
-      </a>
-      <nav class="main-nav" aria-label="Principal">
-        <button data-section="home" class="nav-link active">Início</button>
-        <button data-section="comics" class="nav-link">Quadrinhos</button>
-        <button data-section="factions" class="nav-link">Facção</button>
-        <button data-section="local-box" class="nav-link local-box-nav" style="display:none">Minha caixa</button>
-        <a href="#" class="nav-link album-nav" data-public-album-nav style="display:none">Álbum</a>
-      </nav>
-      <div class="top-actions">
-        <button class="reader-btn downloads-header-btn" data-action="downloads" title="Downloads" aria-label="Downloads">↓<span class="download-badge" hidden></span></button>
-        <button class="reader-btn ranking-header-btn" data-section="ranking" title="Ranking" aria-label="Ranking">🏆</button>
-        <button class="reader-btn random-header-btn" data-action="random" title="Surpreenda-me" aria-label="Surpreenda-me">🎲</button>
-        <button class="reader-btn messages-header-btn" data-action="messages" title="Mensagens" aria-label="Mensagens">💬<span class="message-badge" hidden></span></button>
-        <button class="icon-btn notification-bell" data-action="notifications-popup" title="Notificações" aria-label="Notificações"><span class="notification-bell-icon">🔔</span><span class="notification-badge" hidden></span></button>
-        <button class="icon-btn staff-activity-button" data-action="staff-activity" title="Monitoramento" aria-label="Monitoramento">📜</button>
-        <button class="icon-btn" data-action="focus-search" title="Pesquisar">⌕</button>
-        <button class="avatar" data-action="open-profile-page" title="Entrar ou abrir meu perfil"><img class="top-avatar-img" src="assets/semfoto.jpg?v=1" alt="Perfil"></button>
+  <section class="reader-overlay" aria-label="Leitor de quadrinhos">
+    <div class="reader-top">
+      <div class="reader-top-primary">
+        <button class="small-btn" data-close-reader id="closeReader" type="button">← Voltar</button>
+        <div class="reader-title" id="editionTitle">Carregando edição…</div>
+        <button class="small-btn" data-reader-home id="readerHome" type="button">Início</button>
       </div>
-    </header>
-    <nav class="mobile-bottom-nav" aria-label="Ações principais no celular">
-      <button type="button" class="mobile-bottom-item" data-mobile-action="downloads" aria-label="Downloads">
-        <span class="mobile-bottom-icon" aria-hidden="true">↓</span>
-        <span>Downloads</span>
-      </button>
-      <button type="button" class="mobile-bottom-item" data-mobile-section="ranking" aria-label="Ranking">
-        <span class="mobile-bottom-icon" aria-hidden="true">🏆</span>
-        <span>Ranking</span>
-      </button>
-      <button type="button" class="mobile-bottom-item" data-mobile-section="home" aria-label="Início">
-        <span class="mobile-bottom-icon" aria-hidden="true"><img class="mobile-bottom-icon-image" src="assets/barracavermelhaicon.png?v=2" alt=""></span>
-        <span>Início</span>
-      </button>
-      <button type="button" class="mobile-bottom-item" data-mobile-action="messages" aria-label="Mensagens">
-        <span class="mobile-bottom-icon" aria-hidden="true">💬</span>
-        <span>Mensagens</span>
-      </button>
-      <details class="mobile-more-menu">
-        <summary class="mobile-bottom-item" aria-label="Mais opções">
-          <span class="mobile-bottom-icon" aria-hidden="true">•••</span>
-          <span>Mais</span>
-        </summary>
-        <div class="mobile-more-popover" role="menu" aria-label="Mais opções de navegação">
-          <button type="button" data-mobile-action="random" role="menuitem">🎲 Aleatório</button>
-          <button type="button" data-mobile-section="comics" role="menuitem">Quadrinhos</button>
-          <button type="button" data-mobile-section="factions" role="menuitem">Facção</button>
-          <button type="button" data-mobile-section="album" role="menuitem" hidden>Álbum</button>
-        </div>
-      </details>
-    </nav>
-    <main id="main"></main>
-    <footer class="footer">
-      <div>
-        <strong>Sobre a Banca</strong>
-        <span>A Banca Digital é uma plataforma para descobrir, organizar e ler quadrinhos e mangás em um só lugar, com catálogo, perfis, coleções e recursos comunitários. Nosso objetivo é facilitar a descoberta de histórias e tornar a navegação pela biblioteca mais simples e agradável.</span>
+      <div class="reader-top-reading">
+        <select class="small-btn" id="reading-mode-select" disabled aria-label="Modo de leitura">
+          <option value="single-page">Página por página</option>
+          <option value="double-page">Duas páginas</option>
+          <option value="continuous-scroll">Rolagem contínua</option>
+        </select>
+        <button class="small-btn" id="reading-direction-btn" type="button" hidden>↔ Ocidental</button>
+        <button class="small-btn" id="toggleCover" type="button" hidden>Ignorar capa</button>
+        <button class="small-btn" data-toggle-grayscale id="toggleGrayscale" type="button">Preto e branco</button>
+        <button class="small-btn" id="fitMode" type="button" data-reader-zoom>Ajustar</button>
       </div>
-      <div class="footer-donation">
-        <strong>Apoie a Banca Digital</strong>
-        <span>Se quiser ajudar o projeto, doe qualquer valor via Pix.</span>
-        <div class="donation-pix-key"><code id="donation-pix-key">bancadigitalhq@gmail.com</code><button type="button" class="small-btn" data-copy-donation-pix>Copiar Pix</button></div>
+      <div class="reader-top-actions"></div>
+    </div>
+    <div id="reader-body" class="reader-body" aria-label="Páginas da edição">
+      <div id="status" class="reader-loading"><span class="reader-loading-label">Preparando leitor…</span></div>
+      <div id="pages" class="pages"></div>
+    </div>
+    <div class="reader-bottom-controls">
+      <div class="reader-series-controls reader-series-prev" id="reader-series-prev"></div>
+      <div class="reader-controls" id="reader-controls">
+        <button id="previous" type="button" aria-label="Página anterior">‹</button>
+        <span id="pageCounter" class="reader-page">— / —</span>
+        <input id="pageInput" aria-label="Ir para página" type="number" min="1" value="1">
+        <button id="goPage" type="button">Ir</button>
+        <button id="next" type="button" aria-label="Próxima página">›</button>
       </div>
-      <div class="footer-links">
-        <a href="privacidade.html">Privacidade</a>
-        <a href="termos.html">Termos e Regras</a>
-        <a href="contato.html">Contato e Denúncia</a>
-        <button data-action="submit">Nova edição</button>
-        <button data-action="open-admin">Administração</button>
-      </div>
-    </footer>
-  </div>
-  <div id="modal-root"></div>
-  <div id="toast-root" class="toast-root"></div>
-  <script src="js/reader-deps.js?v=5-progressive-telegram"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/supabase.js"></script>
-  <script src="js/catalog-sync.js?v=6-telegram-pages"></script>
-  <script src="js/telegram-auto.js?v=5-external-media-gateway"></script>
-  <script src="js/telegram-pages.js?v=6-minimize"></script>
-  <script src="js/series-default-covers.js?v=1"></script>
-  <script src="js/telegram-covers.js?v=2"></script>
-  <script src="js/data.js?v=2.2.7.39"></script>
-  <!-- Catálogos por editora/selo. -->
-  <script src="js/data/dc-comics/recentes.js?v=2.2.7.54"></script>
-  <script>
-    window.PUBLISHED_CATALOG = structuredClone({
-      library: window.DEFAULT_LIBRARY || [],
-      series: window.DEFAULT_SERIES || []
-    });
-  </script>
-  <script src="js/data/dc-comics/black-label.js?v=1.0.14"></script>
-  <script src="js/data/dc-comics/milestone.js?v=1.1.1"></script>
-  <script src="js/data/dc-comics/novos-52.js?v=1.0.26"></script>
-  <script src="js/catalog-identity.js?v=1"></script>
-  <script src="js/data/loading-tips.js?v=1.0.0"></script>
-    <script>
-  (() => {
-    "use strict";
-    const params = new URLSearchParams(window.location.search);
-    window.__COMICREADER_REQUESTED_ID = params.get("ler") || "";
-    const decodeJSON64 = value => {
-      const raw = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
-      const padded = raw + "=".repeat((4 - raw.length % 4) % 4);
-      const bytes = Uint8Array.from(atob(padded), char => char.charCodeAt(0));
-      return JSON.parse(new TextDecoder().decode(bytes));
-    };
-    const pageURLs = value => Array.isArray(value)
-      ? value.map(entry => typeof entry === "string" ? entry : entry && (entry.url || entry.src || entry.image_url || entry.imageUrl) || "")
-          .map(value => String(value || "").trim())
-          .filter(value => /^https?:\/\//i.test(value))
-      : [];
-    const hash = value => {
-      let h = 2166136261;
-      for (const char of String(value)) {
-        h ^= char.charCodeAt(0);
-        h = Math.imul(h, 16777619);
-      }
-      return (h >>> 0).toString(36);
-    };
-    const loadScript = source => new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = new URL(source, document.baseURI).href;
-      script.onload = resolve;
-      script.onerror = () => reject(new Error("Não foi possível carregar " + source));
-      document.body.appendChild(script);
-    });
-    async function prepare() {
-      window.CATALOG_VERSION = "comicreader-standalone-v1";
-      // Keep the URL on index.html: the original SPA otherwise interprets /comicreader/ as a username route.
-      if (window.location.pathname.replace(/\/+$/, "") === "/comicreader") {
-        const canonicalURL = new URL(window.location.href);
-        canonicalURL.pathname = "/comicreader/index.html";
-        window.history.replaceState(window.history.state, "", canonicalURL.pathname + canonicalURL.search + canonicalURL.hash);
-      }
-      const hasPayload = ["data", "manifest", "pages", "src"].some(key => params.has(key));
-      if (!hasPayload && !params.has("ler")) {
-        window.location.replace("https://uriel29m.github.io/bancadigital/");
-        return;
-      }
-
-      let data = {};
-      if (params.has("data")) {
-        const packed = params.get("data");
-        try {
-          data = packed.trim().startsWith("{") ? JSON.parse(packed) : decodeJSON64(packed);
-        } catch (error) {
-          throw new Error("Os dados da edição não são um JSON/Base64URL válido.");
-        }
-      }
-      if (params.has("manifest")) {
-        const manifestURL = new URL(params.get("manifest"), window.location.href).href;
-        const response = await fetch(manifestURL, { cache: "no-store" });
-        if (!response.ok) throw new Error("Não foi possível carregar os dados da edição (HTTP " + response.status + ").");
-        data = { ...data, ...await response.json() };
-      }
-      if (params.has("pages")) {
-        const parsedPages = decodeJSON64(params.get("pages"));
-        data.pages = Array.isArray(parsedPages) ? parsedPages : parsedPages?.pages || [];
-      }
-      if (params.has("src")) data.sourceUrl = params.get("src");
-      if (params.has("title")) data.title = params.get("title");
-      if (params.has("format")) data.format = params.get("format");
-
-      if (!hasPayload) return;
-
-      const urls = pageURLs(data.pages);
-      const metadataPages = pageURLs(data.telegramPages);
-      const explicitPageCount = Number(data.pageCount || data.pagesCount || 0);
-      const catalogId = String(data.id || data.itemId || data.editionId || data.telegramItemId || "");
-      const itemId = catalogId || ("comicreader-" + hash(JSON.stringify(data)));
-      const defaults = Array.isArray(window.DEFAULT_LIBRARY) ? window.DEFAULT_LIBRARY : [];
-      const existingItem = defaults.find(entry => String(entry.id) === itemId) || {};
-      const existingPageCount = Array.isArray(existingItem.telegramPages) ? existingItem.telegramPages.length : 0;
-      const pageCount = Math.min(10000, Math.max(0, Number.isSafeInteger(explicitPageCount) ? explicitPageCount : 0, urls.length, metadataPages.length, existingPageCount));
-      const suppliedSourceURL = String(data.sourceUrl || data.fileUrl || data.url || "").trim();
-      const sourceURL = suppliedSourceURL || String(existingItem.fileUrl || "").trim();
-      const backendId = String(data.telegramItemId || data.itemId || data.editionId || data.id || itemId);
-      const hasPageSource = urls.length > 0 || pageCount > 0;
-      if (!sourceURL && !hasPageSource) throw new Error("A edição não informa um arquivo (PDF/CBZ/CBR) nem páginas para ler.");
-
-      const title = String(data.title || data.name || existingItem.title || existingItem.name || "Quadrinho");
-      const item = {
-        ...existingItem,
-        id: itemId,
-        title,
-        name: String(data.name || data.title || existingItem.name || existingItem.title || title),
-        seriesTitle: String(data.seriesTitle || data.series || existingItem.seriesTitle || ""),
-        issue: String(data.issue ?? existingItem.issue ?? ""),
-        year: Number(data.year ?? existingItem.year) || "",
-        type: data.type === "manga" || existingItem.type === "manga" ? "manga" : (existingItem.type || "comic"),
-        format: String(data.format || (hasPageSource ? "images" : existingItem.format || "")).replace(/^\./, "").toLowerCase(),
-        fileUrl: sourceURL,
-        coverUrl: String(data.coverUrl || data.cover || existingItem.coverUrl || existingItem.cover || ""),
-        description: String(data.description || existingItem.description || ""),
-        publisher: String(data.publisher || existingItem.publisher || ""),
-        telegramUrl: String(data.telegramUrl || existingItem.telegramUrl || ""),
-        telegramFileId: String(data.telegramFileId || existingItem.telegramFileId || ""),
-        local: false
-      };
-      ["telegramFileName", "telegramFileSize", "backupUrls", "telegramPageFiles", "telegramPagesPending", "telegramPagesMigration"].forEach(field => {
-        if (Object.prototype.hasOwnProperty.call(data, field)) item[field] = data[field];
-      });
-      if (hasPageSource) item.telegramPages = Array.from({ length: pageCount }, (_, index) => index + 1);
-
-      window.DEFAULT_LIBRARY = [...defaults.filter(entry => String(entry.id) !== itemId), item];
-      if (window.PUBLISHED_CATALOG?.library) {
-        window.PUBLISHED_CATALOG.library = window.PUBLISHED_CATALOG.library.filter(entry => String(entry.id) !== itemId);
-      }
-
-      // Keep the link's edition source authoritative while the live catalog refreshes.
-      const sourceFields = new Set();
-      if (suppliedSourceURL) sourceFields.add("fileUrl");
-      if (Object.prototype.hasOwnProperty.call(data, "format")) sourceFields.add("format");
-      if (hasPageSource) {
-        sourceFields.add("telegramPages");
-        sourceFields.add("format");
-      }
-      ["telegramUrl", "telegramFileId", "telegramFileName", "telegramFileSize", "backupUrls", "telegramPageFiles", "telegramPagesPending", "telegramPagesMigration"].forEach(field => {
-        if (Object.prototype.hasOwnProperty.call(data, field)) sourceFields.add(field);
-      });
-      if (window.BancaCatalogSync && typeof window.BancaCatalogSync.merge === "function") {
-        const catalogSync = window.BancaCatalogSync;
-        const originalMerge = catalogSync.merge.bind(catalogSync);
-        catalogSync.merge = (library, incoming) => {
-          const merged = originalMerge(library, incoming);
-          const currentItem = merged.find(entry => String(entry.id) === itemId);
-          if (currentItem) {
-            sourceFields.forEach(field => { currentItem[field] = item[field]; });
-            if (data.title || data.name) currentItem.title = item.title;
-            if (data.seriesTitle || data.series) currentItem.seriesTitle = item.seriesTitle;
-          }
-          return merged;
-        };
-      }
-
-      const helpers = window.BancaTelegramPages;
-      if (helpers && typeof helpers.imageUrl === "function") {
-        const originalImageUrl = helpers.imageUrl.bind(helpers);
-        helpers.imageUrl = (requestedId, pageNumber) => {
-          if (String(requestedId) !== itemId) return originalImageUrl(requestedId, pageNumber);
-          const page = Math.floor(Number(pageNumber));
-          if (!Number.isInteger(page) || page < 1) return "";
-          const directURL = urls[page - 1] || metadataPages[page - 1] || "";
-          if (directURL) return directURL;
-          const base = String(data.telegramBaseUrl || window.BANCA_SUPABASE_URL || "").replace(/\/+$/, "");
-          if (!base) return "";
-          const image = new URL(base + "/functions/v1/telegram-page-image");
-          image.searchParams.set("item_id", String(backendId || itemId));
-          image.searchParams.set("page", String(page));
-          return image.toString();
-        };
-      }
-
-      const nextURL = new URL(window.location.href);
-      nextURL.searchParams.set("ler", itemId);
-      window.__COMICREADER_REQUESTED_ID = itemId;
-      window.history.replaceState(window.history.state, "", nextURL.pathname + nextURL.search + nextURL.hash);
-    }
-
-    window.ComicReaderStandaloneReady = prepare();
-    window.ComicReaderStandaloneReady
-      .then(async () => {
-        await loadScript("js/app.js?v=2.2.10.565-telegram-preload-all");
-        await loadScript("js/series-more.js?v=2-edition-about");
-
-        // The production SPA waits for authentication before applying routes.
-        // Ensure the exact same reader opens when this page is entered directly.
-        const requestedId = String(window.__COMICREADER_REQUESTED_ID || "");
-        if (requestedId) {
-          let attempts = 0;
-          const openRequestedReader = () => {
-            const runtime = window.BancaDigital;
-            const state = runtime?.state;
-            if (!runtime || !state?.authReady) {
-              if (attempts++ < 600) window.setTimeout(openRequestedReader, 50);
-              return;
-            }
-            if (document.querySelector(".reader-overlay")) return;
-            const item = state.db.library.find(entry => String(entry.id) === requestedId);
-            if (!item) {
-              console.error("[ComicReader] Edição não encontrada no catálogo carregado:", requestedId);
-              return;
-            }
-            state.section = "reader";
-            state.readerItemId = requestedId;
-            runtime.openReader(item, { routeSync: true });
-          };
-          openRequestedReader();
-        }
-      })
-      .catch(error => {
-        console.error("[ComicReader]", error);
-        const message = document.createElement("div");
-        message.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:#101014;color:#fff;padding:32px;font:16px/1.5 system-ui;overflow:auto";
-        message.textContent = "Não foi possível abrir esta edição: " + (error?.message || String(error));
-        document.body.appendChild(message);
-      });
-  })();
-</script>
-  <script>
-    (() => {
-      const mobileNav = document.querySelector('.mobile-bottom-nav');
-      if (!mobileNav) return;
-
-      const findTopbarControl = (kind, value) => {
-        if (kind === 'section' && value === 'album') {
-          return document.querySelector('.topbar [data-public-album-nav]');
-        }
-        const selector = kind === 'section' ? '.topbar [data-section]' : '.topbar [data-action]';
-        return Array.from(document.querySelectorAll(selector)).find(element => (
-          kind === 'section' ? element.dataset.section === value : element.dataset.action === value
-        ));
-      };
-
-      const albumNav = document.querySelector('.topbar [data-public-album-nav]');
-      const mobileAlbum = mobileNav.querySelector('[data-mobile-section="album"]');
-      const syncMobileAlbumVisibility = () => {
-        if (!mobileAlbum) return;
-        const available = Boolean(
-          albumNav &&
-          getComputedStyle(albumNav).display !== 'none' &&
-          albumNav.getAttribute('href') &&
-          albumNav.getAttribute('href') !== '#'
-        );
-        mobileAlbum.hidden = !available;
-      };
-      syncMobileAlbumVisibility();
-      if (albumNav) {
-        new MutationObserver(syncMobileAlbumVisibility).observe(albumNav, {
-          attributes: true,
-          attributeFilter: ['style', 'href']
-        });
-      }
-
-      mobileNav.addEventListener('click', event => {
-        const trigger = event.target.closest('[data-mobile-action], [data-mobile-section]');
-        if (!trigger) return;
-
-        const topbar = document.querySelector('.topbar');
-        const action = trigger.dataset.mobileAction || '';
-        const section = trigger.dataset.mobileSection || '';
-
-        if (topbar?.classList.contains('is-offline') && action !== 'downloads') return;
-
-        const target = section
-          ? findTopbarControl('section', section)
-          : findTopbarControl('action', action);
-        if (!target) return;
-
-        event.preventDefault();
-        const openMenu = trigger.closest('.mobile-more-menu') || mobileNav.querySelector('.mobile-more-menu[open]');
-        openMenu?.removeAttribute('open');
-        target.click();
-      });
-
-      document.addEventListener('click', event => {
-        const openMenu = mobileNav.querySelector('.mobile-more-menu[open]');
-        if (openMenu && !openMenu.contains(event.target)) openMenu.removeAttribute('open');
-      });
-    })();
-  </script>
+      <div class="reader-series-controls reader-series-next" id="reader-series-next"></div>
+    </div>
+    <div class="reader-footer">
+      <span></span>
+      <div class="reader-footer-actions"><span id="editionMeta">PDF · CBZ · CBR · imagens</span></div>
+      <div class="reader-comments" id="error" hidden></div>
+    </div>
+  </section>
+  <script type="module" src="./reader.js?v=3"></script>
 </body>
 </html>
