@@ -599,10 +599,9 @@ async function openSeriesSelection(series, editions=[], returnToCoverVariants=fa
   document.addEventListener("keydown",onKeyDown);
   overlay.addEventListener("click",event=>{if(event.target===overlay)close();});
   overlay.querySelector("[data-close]")?.addEventListener("click",close);
-  overlay.querySelector("[data-back-reader]")?.addEventListener("click",()=>{
-    close();
-    if(returnToReader?.id)void openBancaEditionLink(readerCanonicalShareUrl(returnToReader.id)).catch(error=>showEmptyReader(error?.message||"Não foi possível reabrir a história."));
-  });
+  // A edição permanece aberta atrás do modal. Voltar apenas fecha a seleção;
+  // não recarrega a história nem altera a rota atual.
+  overlay.querySelector("[data-back-reader]")?.addEventListener("click",close);
   overlay.querySelector("[data-back-cover-variants]")?.addEventListener("click",()=>{close();readerActionToast("Abra a seleção de capas pela página da Banca Digital.");});
   overlay.querySelector("[data-back-file-reports]")?.addEventListener("click",()=>{close();readerActionToast("Abra os relatórios pela página da Banca Digital.");});
   overlay.querySelector("[data-close]")?.focus();
@@ -647,7 +646,8 @@ async function openSeriesSelection(series, editions=[], returnToCoverVariants=fa
         // Telegram pages, and the canonical source are used instead of stale catalog data.
         void openBancaEditionLink(readerCanonicalShareUrl(target.id)).catch(error=>{
           console.error("[ComicReader] Não foi possível abrir a edição da série:",error);
-          showEmptyReader(error?.message||"Não foi possível abrir esta edição.");
+          // Se a próxima edição falhar, preserve a que já estava aberta.
+          readerActionToast(error?.message||"Não foi possível abrir esta edição.");
         });
       };
       card.addEventListener("click",open);
@@ -1589,9 +1589,11 @@ function openReader(item, options = {}) {
     $("[data-share-item]", overlay)?.addEventListener("click", event => { event.stopPropagation(); shareComic(item.id); });
     $("[data-comment-item]", overlay)?.addEventListener("click", event => { event.stopPropagation(); openCommentsPopup(item); });
     $("[data-view-series]", overlay)?.addEventListener("click", event => {
+      event.preventDefault();
       event.stopPropagation();
       const editions = seriesEditions(item);
-      cleanupReader();
+      // Keep the current reader mounted under the series dialog. The selected
+      // edition resolver will replace it only after the new source is resolved.
       void openSeriesSelection(item, editions, false, false, item);
     });
     $$('[data-reader-custom-link]', overlay).forEach(button => button.addEventListener("click", () => window.open(button.dataset.readerCustomLink, "_blank", "noopener")));
