@@ -384,7 +384,10 @@ function attachComments(item,overlay) {
       const note=document.createElement("p");note.textContent="Você pode ler os comentários. Para publicar, entre na sua conta da Banca Digital.";
       note.style.cssText="color:#aaa;font-size:13px";panel.appendChild(note);
       const login=document.createElement("a");login.href=BANCADIGITAL_BASE;login.target="_blank";login.rel="noopener noreferrer";
-      login.textContent="Abrir a Banca Digital para entrar";login.style.cssText="display:inline-block;margin:0 0 12px;color:#9dc4ff";panel.appendChild(login);
+      login.textContent="Abrir a Banca Digital para entrar";login.style.cssText="display:inline-block;margin:0 12px 12px 0;color:#9dc4ff";panel.appendChild(login);
+      const refresh=document.createElement("button");refresh.type="button";refresh.textContent="Já entrei — atualizar";
+      refresh.style.cssText="display:inline-block;margin:0 0 12px;padding:5px 9px;border:1px solid #555;border-radius:7px;background:#222;color:#eee;cursor:pointer";
+      refresh.addEventListener("click",()=>void render());panel.appendChild(refresh);
     }else{
       const form=document.createElement("form");form.style.cssText="display:flex;gap:8px;margin:10px 0;align-items:stretch";
       const input=document.createElement("textarea");input.rows=2;input.maxLength=1000;input.required=true;input.placeholder="Escreva um comentário…";
