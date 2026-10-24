@@ -1326,7 +1326,7 @@ async function bootStandaloneReader() {
     state.readerItemId = item.id;
     activeReaderCleanup = null;
     readerIsOpen = false;
-    openReader(item, {routeSync:true, skipCover: edition.skipCover === true});
+    openReader(item, {routeSync:true, skipCover: edition.skipCover === true, standalone:true});
   } catch (error) {
     showEmptyReader(error?.message || "Não foi possível carregar a edição.");
   }
