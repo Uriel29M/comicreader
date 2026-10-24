@@ -17,3 +17,8 @@ Leitor independente para quadrinhos, separado do catálogo Banca Digital.
 
 ## Atenção
 O leitor independente ainda precisa ser testado com arquivos reais e ligado ao catálogo da Banca Digital. A produção antiga permanece intacta até validar a integração e a publicação do site.
+
+
+## Publicação
+
+Antes do primeiro deploy, abra **Settings → Pages** neste repositório e selecione **GitHub Actions** em *Build and deployment → Source*. A integração conectada consegue publicar arquivos, mas não tem permissão administrativa para habilitar Pages por API. Depois disso, o workflow publica automaticamente a cada atualização da branch main.
