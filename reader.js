@@ -1736,7 +1736,16 @@ function openReader(item, options = {}) {
           updateReadButtonAvailability();
         });
     }
+    const readerHasRenderedPage = () => {
+      if (!body?.isConnected) return false;
+      const canvas = body.querySelector("canvas");
+      if (canvas && canvas.width > 0 && canvas.height > 0) return true;
+      return Array.from(body.querySelectorAll("img")).some(image =>
+        image.complete && image.naturalWidth > 0 && !image.closest(".reader-loading")
+      );
+    };
     const markReaderReady = () => {
+      if (!readerHasRenderedPage()) return;
       readerContentReady = true;
       updateReadButtonAvailability();
     };
@@ -2116,8 +2125,10 @@ function openReader(item, options = {}) {
       const selectedFormat = telegramPagesMode ? "telegram-pages" : (item.local ? format : String(item.format || format).toLowerCase());
       if (["pdf", "cbz", "cbr"].includes(selectedFormat)) await ensureReaderDependency(selectedFormat);
       const callback = (...args) => {
-        markReaderReady();
         saveReadingProgress(...args);
+        // Renderers may report page selection before the image/canvas is ready.
+        // Only unlock the read-status action when the first page is actually rendered.
+        if (readerHasRenderedPage()) markReaderReady();
         const page = Number(args[1]) || 0;
         const total = Number(args[2]) || 0;
         void readerAdControllerPromise.then(controller => controller?.onPageChange(page, total)).catch(() => {});
@@ -2133,7 +2144,11 @@ function openReader(item, options = {}) {
       }
     };
     if (format === "pdf" || format === "cbz" || format === "cbr" || format === "telegram-pages") {
-      void startReader().then(markReaderReady).catch(() => {});
+      void startReader().then(() => {
+        if (readerHasRenderedPage()) markReaderReady();
+      }).catch(error => {
+        console.warn("[ComicReader] A edição não terminou de carregar:", error);
+      });
     } else if (["jpg","jpeg","png","webp","gif"].includes(format)) {
       body.innerHTML = readerLoadingMarkup("Abrindo imagem…");
       const image = document.createElement("img");
