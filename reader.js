@@ -1,6 +1,6 @@
 const $ = s => document.querySelector(s);
 const params = new URLSearchParams(location.search);
-const titleNode=$("#editionTitle"), metaNode=$("#editionMeta"), statusNode=$("#status"), pagesNode=$("#pages"), readerNode=$("#reader"), errorNode=$("#error"), counterNode=$("#pageCounter"), pageInput=$("#pageInput"), prevBtn=$("#previous"), nextBtn=$("#next"), goBtn=$("#goPage"), modeSelect=$("#reading-mode-select"), fitBtn=$("#fitMode"), grayscaleBtn=$("#toggleGrayscale"), closeBtn=$("#closeReader"), homeBtn=$("#readerHome");
+const titleNode=$("#editionTitle"), metaNode=$("#editionMeta"), statusNode=$("#status"), pagesNode=$("#pages"), readerNode=$("#reader-body"), errorNode=$("#error"), counterNode=$("#pageCounter"), pageInput=$("#pageInput"), prevBtn=$("#previous"), nextBtn=$("#next"), goBtn=$("#goPage"), modeSelect=$("#reading-mode-select"), fitBtn=$("#fitMode"), grayscaleBtn=$("#toggleGrayscale"), closeBtn=$("#closeReader"), homeBtn=$("#readerHome");
 let edition={id:"",title:"Leitor de quadrinhos",format:"",sourceUrl:"",pages:[]}, pageUrls=[], pageCount=0, currentPage=1, continuous=false, spread=false, fitWidth=true, generation=0, activeAbort=null, backgroundGeneration=-1;
 const loaded=new Map(), pending=new Map(), objectUrls=new Set();
 function decodeJson64(v){const b=v.replace(/-/g,"+").replace(/_/g,"/");const bytes=Uint8Array.from(atob(b),c=>c.charCodeAt(0));return JSON.parse(new TextDecoder().decode(bytes))}
