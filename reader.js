@@ -1,70 +1,1260 @@
-const $ = s => document.querySelector(s);
+const BANCADIGITAL_BASE = "https://uriel29m.github.io/bancadigital/";
+const $ = (selector, root = document) => root.querySelector(selector);
+const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 const params = new URLSearchParams(location.search);
-const titleNode=$("#editionTitle"), metaNode=$("#editionMeta"), readerNode=$("#reader-body"), errorNode=$("#error"), counterNode=$("#pageCounter"), prevBtn=$("#previous"), nextBtn=$("#next"), modeSelect=$("#reading-mode-select"), directionBtn=$("#reading-direction-btn"), coverBtn=$("#toggleCover"), fitBtn=$("#fitMode"), grayscaleBtn=$("#toggleGrayscale"), closeBtn=$("#closeReader"), homeBtn=$("#readerHome");
-let statusNode=null, pagesNode=readerNode;
-let edition={id:"",title:"Leitor de quadrinhos",format:"",sourceUrl:"",pages:[]}, pageUrls=[], pageCount=0, currentPage=1, continuous=false, spread=false, skipCover=false, readingDirection=localStorage.getItem("readingDirection")||"western", fitWidth=true, generation=0, activeAbort=null, backgroundGeneration=-1;
-const loaded=new Map(), pending=new Map(), objectUrls=new Set();
-function decodeJson64(v){const b=v.replace(/-/g,"+").replace(/_/g,"/");const bytes=Uint8Array.from(atob(b),c=>c.charCodeAt(0));return JSON.parse(new TextDecoder().decode(bytes))}
-function formatOf(v){v=String(v||"").toLowerCase().replace(/^\./,"");return ["pdf","cbz","cbr","jpg","jpeg","png","webp","images"].includes(v)?v:""}
-function status(v){
- if(!v){statusNode?.remove();statusNode=null;return}
- if(!statusNode){statusNode=document.createElement("div");statusNode.className="reader-loading";readerNode.replaceChildren(statusNode);pagesNode=readerNode}
- statusNode.hidden=false;statusNode.textContent=v;
+const sb = null;
+const READER_END_PAGE_URL = BANCADIGITAL_BASE + "assets/somosumabiblioteca.jpg";
+let state = {
+  readingMode: localStorage.getItem("readingMode") || "single-page",
+  readingDirection: localStorage.getItem("readingDirection") || "western",
+  recentlyOpenedIds: [],
+  readerItemId: null,
+  session: null,
+  profile: null,
+  comicLikeIds: new Set(),
+  comicLikeCounts: new Map()
+};
+let activeReaderCleanup = null;
+let readerIsOpen = false;
+let handlingRoute = false;
+const readerFilePrefetches = new Map();
+let activeEditionForPageUrls = null;
+let activePageUrls = [];
+
+function escapeHTML(value) {
+  return String(value == null ? "" : value).replace(/[&<>"']/g, char => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[char]);
 }
-function showError(v){
- errorNode.hidden=false;errorNode.textContent=v;
- const box=document.createElement("div");box.className="empty";box.style.cssText="margin:auto;max-width:650px;padding:24px;text-align:center";
- const heading=document.createElement("h3");heading.textContent="Não foi possível abrir a edição";
- const message=document.createElement("p");message.textContent=v;
- box.append(heading,message);readerNode.replaceChildren(box);pagesNode=readerNode;
+function extension(url) {
+  const raw = String(url || "");
+  const clean = /^(https?:|blob:|data:)/i.test(raw) ? raw.split("?")[0].split("#")[0] : raw;
+  const filename = clean.split(/[\\/]/).pop();
+  return /^.+\.[a-z0-9]{1,8}$/i.test(filename) ? filename.split(".").pop().toLowerCase() : "";
 }
-function clearError(){errorNode.hidden=true;errorNode.textContent="";readerNode.querySelector(".empty")?.remove()}
-function imageList(v){return Array.isArray(v)?v.map(x=>typeof x==="string"?x:(x&& (x.url||x.src))||"").filter(x=>/^https?:\/\//i.test(x)):[]}
-async function parseEdition(){const packed=params.get("data");if(packed)edition=Object.assign(edition,decodeJson64(packed));if(params.has("manifest")){const r=await fetch(params.get("manifest"),{cache:"no-store"});if(!r.ok)throw Error("Não foi possível carregar os dados desta edição.");edition=Object.assign(edition,await r.json())}if(params.has("pages"))edition.pages=imageList(decodeJson64(params.get("pages")));if(params.has("src"))edition.sourceUrl=params.get("src");if(params.has("title"))edition.title=params.get("title");if(params.has("format"))edition.format=params.get("format")}
-function reset(){generation++;if(activeAbort)activeAbort.abort();activeAbort=new AbortController();for(const u of objectUrls)URL.revokeObjectURL(u);objectUrls.clear();loaded.clear();pending.clear();statusNode?.remove();statusNode=null;readerNode.replaceChildren();pagesNode=readerNode;return generation}
-function controls(){const first=firstPage();counterNode.textContent=pageCount?(spread?currentPage+"–"+Math.min(pageCount,currentPage+1)+" / "+pageCount:currentPage+" / "+pageCount):"— / —";prevBtn.disabled=!pageCount||currentPage<=first;nextBtn.disabled=!pageCount||currentPage>=pageCount;if(modeSelect){modeSelect.value=continuous?"continuous-scroll":spread?"double-page":"single-page";modeSelect.disabled=!pageCount}readerNode.classList.toggle("continuous",continuous);if(directionBtn){directionBtn.hidden=!spread;directionBtn.textContent=readingDirection==="eastern"?"↔ Oriental":"↔ Ocidental";}if(coverBtn){const fmt=formatOf(edition.format||(edition.sourceUrl||"").split("?")[0].split(".").pop());coverBtn.hidden=pageCount<2||!["pdf","cbz","cbr","images"].includes(fmt);coverBtn.textContent=skipCover?"Incluir capa":"Ignorar capa";}}
-function firstPage(){return skipCover&&pageCount>1?2:1}
-function groupStart(p){if(!spread)return p;const first=firstPage();return first+Math.max(0,Math.floor((p-first)/2))*2}
-function group(p){const s=groupStart(p);const result=spread?[s,s+1].filter(n=>n>=firstPage()&&n<=pageCount):[s];return readingDirection==="eastern"?result.reverse():result}
-async function preloadImage(url){return new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(url);img.onerror=()=>reject(new Error("Falha ao pré-carregar imagem"));img.src=url;if(img.complete&&img.naturalWidth)resolve(url)})}
-async function loadPage(p){if(loaded.has(p))return loaded.get(p);if(pending.has(p))return pending.get(p);const gen=generation;const task=(async()=>{let value;if(edition.renderPage)value=await edition.renderPage(p,activeAbort&&activeAbort.signal);else if(pageUrls.length)value=await preloadImage(pageUrls[p-1]);else throw Error("Página sem origem.");if(gen!==generation)return null;if(value instanceof Blob){value=URL.createObjectURL(value);objectUrls.add(value)}loaded.set(p,value);return value})().finally(()=>pending.delete(p));pending.set(p,task);return task}
-function attach(row,p){if(p<1||p>pageCount||row.querySelector('img[data-page="'+p+'"]'))return;const img=document.createElement("img");img.className="reader-image";img.alt="Página "+p;img.dataset.page=String(p);img.loading="eager";img.decoding="async";if(fitWidth&&!continuous)img.style.width=spread?"calc(50% - 4px)":"auto";row.append(img);loadPage(p).then(src=>{if(img.isConnected&&src)img.src=src}).catch(()=>{if(img.isConnected)img.alt="Falha ao carregar página "+p})}
-function ensureRow(p){const start=p;let row=pagesNode.querySelector('.image-page-wrapper[data-start="'+start+'"]');if(!row){row=document.createElement("div");row.className="image-page-wrapper";row.dataset.start=String(start);pagesNode.append(row)}attach(row,p);return row}
-function onPagesScroll(){if(!continuous)return;const rows=Array.from(pagesNode.querySelectorAll(".image-page-wrapper"));const visible=rows.find(row=>{const rect=row.getBoundingClientRect();return rect.bottom>0&&rect.top<pagesNode.getBoundingClientRect().top+pagesNode.clientHeight/2})||rows[0];const page=Number(visible?.dataset.start)||0;if(page>0&&page!==currentPage){currentPage=page;controls();prefetch(currentPage)}}
-function render(){if(!pageCount)return;readerNode.classList.toggle("continuous",continuous);
- if(continuous){let scroller=readerNode.querySelector(".image-continuous-scroll-container");if(!scroller){readerNode.replaceChildren();scroller=document.createElement("div");scroller.className="image-continuous-scroll-container";readerNode.append(scroller);scroller.addEventListener("scroll",onPagesScroll,{passive:true})}pagesNode=scroller;pagesNode.replaceChildren();for(let p=firstPage();p<=pageCount;p++)ensureRow(p)}
- else{readerNode.replaceChildren();pagesNode=readerNode;if(spread){const row=document.createElement("div");row.className="reader-double-page";group(currentPage).forEach(p=>attach(row,p));pagesNode.append(row)}else attach(pagesNode,currentPage)}
- controls()}
-function prefetch(p){const urgent=[p-2,p-1,p,p+1,p+2].filter((n,i,a)=>n>=1&&n<=pageCount&&a.indexOf(n)===i);const jobs=urgent.map(n=>loadPage(n).catch(()=>null));if(backgroundGeneration===generation)return;backgroundGeneration=generation;const gen=generation;Promise.all(jobs).then(()=>{if(gen!==generation)return;const queue=Array.from({length:pageCount},(_,i)=>i+1).filter(n=>!loaded.has(n)).sort((a,b)=>Math.abs(a-p)-Math.abs(b-p));let i=0;async function worker(){while(i<queue.length&&gen===generation){const n=queue[i++];try{await loadPage(n)}catch(e){}}}return Promise.all([worker(),worker()])})}
-function go(p){if(!pageCount)return;currentPage=Math.max(firstPage(),Math.min(pageCount,Math.floor(Number(p)||firstPage())));if(spread)currentPage=groupStart(currentPage);clearError();if(continuous){const row=ensureRow(currentPage);if(row)row.scrollIntoView({block:"start",behavior:"instant"})}else render();controls();prefetch(currentPage)}
-function next(){go(Math.min(pageCount,currentPage+(spread?2:1)))}
-function previous(){go(Math.max(1,currentPage-(spread?2:1)))}
-async function loadPdf(url){const pdfjs=await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";const r=await fetch(url,{signal:activeAbort.signal,mode:"cors",credentials:"omit"});if(!r.ok)throw Error("Falha ao buscar PDF (HTTP "+r.status+").");const pdf=await pdfjs.getDocument({data:await r.arrayBuffer()}).promise;edition.renderPage=async n=>{const p=await pdf.getPage(n),v=p.getViewport({scale:1.7}),c=document.createElement("canvas");c.width=v.width;c.height=v.height;await p.render({canvasContext:c.getContext("2d",{alpha:false}),viewport:v}).promise;return new Promise(resolve=>c.toBlob(resolve,"image/jpeg",.9))};pageCount=pdf.numPages;return "PDF"}
-async function loadCbz(url){const mod=await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm");const Zip=mod.default||mod;const r=await fetch(url,{signal:activeAbort.signal,mode:"cors",credentials:"omit"});if(!r.ok)throw Error("Falha ao buscar CBZ (HTTP "+r.status+").");const zip=await Zip.loadAsync(await r.arrayBuffer());const files=Object.values(zip.files).filter(f=>!f.dir&&/\.(jpe?g|png|webp|gif|avif)$/i.test(f.name)&&!/(^|\/)(__MACOSX|\.)(\/|$)/i.test(f.name)).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:"base"}));if(!files.length)throw Error("O CBZ não contém páginas de imagem.");edition.renderPage=n=>files[n-1].async("blob");pageCount=files.length;return "CBZ"}
-async function loadCbr(url){
- const response=await fetch(url,{signal:activeAbort.signal,mode:"cors",credentials:"omit"});
- if(!response.ok)throw Error("Falha ao buscar CBR (HTTP "+response.status+").");
- const buffer=await response.arrayBuffer(),bytes=new Uint8Array(buffer);
- if(bytes.length<8)throw Error("Arquivo CBR vazio ou inválido.");
- const zip=bytes[0]===0x50&&bytes[1]===0x4b;
- if(zip){const mod=await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm"),Zip=mod.default||mod,z=await Zip.loadAsync(buffer),files=Object.values(z.files).filter(f=>!f.dir&&/\.(jpe?g|png|webp|gif|avif)$/i.test(f.name)).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:"base"}));if(!files.length)throw Error("O arquivo não contém páginas de imagem.");edition.renderPage=n=>files[n-1].async("blob");pageCount=files.length;return "CBR/ZIP"}
- const rar4=bytes[0]===0x52&&bytes[1]===0x61&&bytes[2]===0x72&&bytes[3]===0x21&&bytes[4]===0x1a&&bytes[5]===0x07&&bytes[6]===0x00;
- const rar5=bytes[0]===0x52&&bytes[1]===0x61&&bytes[2]===0x72&&bytes[3]===0x21&&bytes[4]===0x1a&&bytes[5]===0x07&&bytes[6]===0x01&&bytes[7]===0x00;
- if(!rar4&&!rar5)throw Error("O arquivo recebido não tem assinatura RAR4/RAR5 válida.");
- const base="https://uriel29m.github.io/bancadigital/libarchive/";
- const [lib,rar]=await Promise.all([import(base+"libarchive.js"),import(base+"rar-reader.mjs")]);
- const Archive=rar.withSolidRarSupport(lib.Archive);
- Archive.init({workerUrl:base+"worker-bundle.js"});
- const archive=await Archive.open(new File([buffer],"comic.cbr",{type:"application/vnd.rar"}));
- const tree=await archive.getFilesObject();
- function collect(obj,path){let out=[];if(!obj||typeof obj!=="object")return out;for(const [key,value] of Object.entries(obj)){const name=path?path+"/"+key:key;if(value&&typeof value==="object"&&typeof value.extract==="function"){const fileName=value.name||key;if(/\.(jpg|jpeg|png|webp|gif|avif)$/i.test(fileName))out.push({name:fileName,file:value});continue}if(value&&typeof value==="object")out=out.concat(collect(value,name))}return out}
- const files=collect(tree).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:"base"}));
- if(!files.length)throw Error("O CBR não contém páginas de imagem.");
- edition.renderPage=async n=>{const v=await files[n-1].file.extract();return v instanceof Blob?v:new Blob([v],{type:/\.png$/i.test(files[n-1].name)?"image/png":/\.webp$/i.test(files[n-1].name)?"image/webp":"image/jpeg"})};
- pageCount=files.length;return "CBR"
+function readerLoadingTipMarkup() { return ""; }
+function readerLoadingMarkup(message) {
+  return '<div class="reader-loading" role="status"><div class="reader-loading-label">' +
+    escapeHTML(message) +
+    '</div><progress class="reader-progress" aria-label="Carregamento da edição"></progress></div>';
 }
-async function boot(){const gen=reset();status("Carregando edição…");try{await parseEdition();if(gen!==generation)return;if(!edition.sourceUrl&&!edition.pages?.length&&!edition.telegramItemId&&!params.has("manifest")){titleNode.textContent="Leitor de quadrinhos";metaNode.textContent="";status("Abra uma edição da Banca Digital para começar a leitura.");return}titleNode.textContent=edition.title||"Quadrinho";const fmt=formatOf(edition.format||(edition.sourceUrl||"").split("?")[0].split(".").pop());const supportsModes=["pdf","cbz","cbr","images"].includes(fmt)||Boolean(edition.telegramItemId);if(modeSelect)modeSelect.hidden=!supportsModes;if(!supportsModes){continuous=false;spread=false;}else{const savedMode=localStorage.getItem("readingMode")||"single-page";continuous=savedMode==="continuous-scroll";spread=savedMode==="double-page";}readingDirection=localStorage.getItem("readingDirection")||readingDirection;if(grayscaleBtn)grayscaleBtn.hidden=!["pdf","cbz","cbr","jpg","jpeg","png","webp","images"].includes(fmt);pageUrls=imageList(edition.pages);if(!pageUrls.length&&edition.telegramItemId&&edition.telegramBaseUrl&&Number(edition.pageCount)>0){const telegramBase=String(edition.telegramBaseUrl).replace(/\/+$/, "");pageUrls=Array.from({length:Number(edition.pageCount)},(_,i)=>{const u=new URL(telegramBase+"/functions/v1/telegram-page-image");u.searchParams.set("item_id",String(edition.telegramItemId));u.searchParams.set("page",String(i+1));return u.href})}let label=fmt.toUpperCase()||"IMAGENS";if(pageUrls.length)pageCount=pageUrls.length;else if(edition.sourceUrl&&fmt==="pdf")label=await loadPdf(edition.sourceUrl);else if(edition.sourceUrl&&fmt==="cbz")label=await loadCbz(edition.sourceUrl);else if(edition.sourceUrl&&fmt==="cbr")label=await loadCbr(edition.sourceUrl);else throw Error("Passe ?src=URL&format=pdf|cbz, ?pages=JSON_BASE64URL ou ?data=JSON_BASE64URL.");if(gen!==generation)return;skipCover=edition.skipCover===true||localStorage.getItem("readerSkipCover:"+String(edition.id||edition.title||"edition"))==="true";currentPage=firstPage();metaNode.textContent="";if(modeSelect)modeSelect.disabled=false;status("");render();prefetch(currentPage)}catch(e){if(gen!==generation||e.name==="AbortError")return;status("");showError(e.message||"Não foi possível abrir esta edição.")}}
-prevBtn.addEventListener("click",previous);nextBtn.addEventListener("click",next);
-modeSelect.addEventListener("change",()=>{continuous=modeSelect.value==="continuous-scroll";spread=modeSelect.value==="double-page";localStorage.setItem("readingMode",modeSelect.value);pagesNode.replaceChildren();if(spread)currentPage=groupStart(currentPage);render();prefetch(currentPage)});directionBtn.addEventListener("click",()=>{readingDirection=readingDirection==="eastern"?"western":"eastern";localStorage.setItem("readingDirection",readingDirection);render()});coverBtn.addEventListener("click",()=>{skipCover=!skipCover;localStorage.setItem("readerSkipCover:"+String(edition.id||edition.title||"edition"),String(skipCover));currentPage=firstPage();render();prefetch(currentPage)});let readerZoom=1;fitBtn.textContent="Zoom";fitBtn.addEventListener("click",()=>{readerZoom=readerZoom>=2?1:2;readerNode.style.setProperty("--reader-zoom",String(readerZoom));readerNode.style.setProperty("--reader-pan-x","0px");readerNode.style.setProperty("--reader-pan-y","0px");readerNode.style.setProperty("--reader-origin-x","50%");readerNode.style.setProperty("--reader-origin-y","50%");readerNode.classList.toggle("reader-gesture-zoom",readerZoom>1);fitBtn.textContent=readerZoom>1?"Zoom 200%":"Zoom"});grayscaleBtn.addEventListener("click",()=>{const active=readerNode.classList.toggle("reader-grayscale");grayscaleBtn.textContent=active?"Cor normal":"Preto e branco"});closeBtn.addEventListener("click",()=>{if(history.length>1)history.back();else location.href="https://uriel29m.github.io/bancadigital/"});homeBtn.addEventListener("click",()=>location.href="https://uriel29m.github.io/bancadigital/");
-document.addEventListener("keydown",e=>{if(e.altKey||e.ctrlKey||e.metaKey||/INPUT|TEXTAREA/.test(e.target.tagName||""))return;if(["ArrowRight","PageDown"," "].includes(e.key)){e.preventDefault();next()}if(["ArrowLeft","PageUp"].includes(e.key)){e.preventDefault();previous()}if(e.key==="Home")go(1);if(e.key==="End")go(pageCount)});
-window.addEventListener("pagehide",()=>{if(activeAbort)activeAbort.abort();for(const u of objectUrls)URL.revokeObjectURL(u)});boot();
+function showReaderPageLoading(wrapper) {
+  if (!wrapper.querySelector(".reader-loading")) wrapper.insertAdjacentHTML("beforeend", readerLoadingMarkup("Carregando página…"));
+  wrapper.classList.add("reader-page-loading");
+}
+function finishReaderPageLoading(wrapper, error = null) {
+  const loading = wrapper.querySelector(".reader-loading");
+  if (error && loading) loading.textContent = "Não foi possível carregar esta página.";
+  else loading?.remove();
+  wrapper.classList.remove("reader-page-loading");
+}
+function isZipSignature(bytes) {
+  return bytes?.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
+}
+function hasZipEndRecord(buffer) {
+  const bytes = new Uint8Array(buffer || 0);
+  const start = Math.max(0, bytes.length - 65557);
+  for (let index = bytes.length - 22; index >= start; index -= 1) {
+    if (bytes[index] === 0x50 && bytes[index + 1] === 0x4b && bytes[index + 2] === 0x05 && bytes[index + 3] === 0x06) return true;
+    if (bytes[index] === 0x50 && bytes[index + 1] === 0x4b && bytes[index + 2] === 0x06 && bytes[index + 3] === 0x06) return true;
+  }
+  return false;
+}
+function isInvalidZipError(error) {
+  return /end of central directory|central directory|is this a zip file/i.test(String(error?.message || error));
+}
+function getReaderPages(totalPages, skipCover) {
+  const firstPage = skipCover && totalPages > 1 ? 2 : 1;
+  return Array.from({length: totalPages - firstPage + 1}, (_, index) => firstPage + index);
+}
+function getReaderSpreadPages(totalPages, spread, skipCover) {
+  const pages = getReaderPages(totalPages, skipCover).slice(spread * 2, spread * 2 + 2);
+  return state.readingDirection === "eastern" ? pages.reverse() : pages;
+}
+function getReaderSpreadIndexes(totalPages, spread, skipCover) {
+  return getReaderSpreadPages(totalPages, spread, skipCover).map(page => page - 1);
+}
+function readerEndPageImage() {
+  const image = document.createElement("img");
+  image.className = "reader-image";
+  image.alt = "Página final";
+  image.src = READER_END_PAGE_URL;
+  return image;
+}
+function isTelegramMediaUrl(url) {
+  try {
+    const u = new URL(url);
+    return Boolean(window.BANCA_SUPABASE_URL) &&
+      u.hostname === new URL(window.BANCA_SUPABASE_URL).hostname &&
+      /\/functions\/v1\/telegram-(?:proxy|mtproto)$/.test(u.pathname);
+  } catch { return false; }
+}
+function waitForPrefetchedBuffer(value, timeoutMs = 15000) {
+  if (!value) return Promise.resolve(null);
+  return Promise.race([
+    Promise.resolve(value),
+    new Promise(resolve => window.setTimeout(() => resolve(null), timeoutMs))
+  ]).catch(() => null);
+}
+function createArchivePageCache(files, extract) {
+  const cache = new Map(), pending = new Map();
+  const thirdSize = Math.max(1, Math.ceil(files.length / 3));
+  const get = index => {
+    if (cache.has(index)) return Promise.resolve(cache.get(index));
+    if (!pending.has(index)) {
+      pending.set(index, Promise.resolve(extract(files[index])).then(value => {
+        cache.set(index, value); pending.delete(index); return value;
+      }).catch(error => { pending.delete(index); throw error; }));
+    }
+    return pending.get(index);
+  };
+  const prefetchThird = third => {
+    if (third < 0 || third > 2) return Promise.resolve();
+    const start = third * thirdSize, end = Math.min(files.length, start + thirdSize);
+    return Promise.all(Array.from({length: end - start}, (_, offset) => get(start + offset))).then(() => undefined);
+  };
+  return {get, prefetchThird, thirdSize};
+}
+function directGoogleDriveUrl(url) {
+  const source = String(url || "");
+  let parsed;
+  try { parsed = new URL(source); } catch { return source; }
+  if (!/^(?:drive|docs)\.google\.com$/i.test(parsed.hostname)) return source;
+  const pathId = parsed.pathname.match(/\/(?:file\/d|document\/d|spreadsheets\/d|presentation\/d)\/([^/]+)/i)?.[1];
+  const id = parsed.searchParams.get("id") || pathId;
+  if (!id) return source;
+  const direct = new URL("https://drive.usercontent.google.com/download");
+  direct.searchParams.set("id", id);
+  direct.searchParams.set("export", "download");
+  const resourceKey = parsed.searchParams.get("resourcekey");
+  if (resourceKey) direct.searchParams.set("resourcekey", resourceKey);
+  return direct.toString();
+}
+function proxiedFileUrl(url) {
+  const source = directGoogleDriveUrl(url);
+  let parsed;
+  try { parsed = new URL(source); } catch { return source; }
+  const host = parsed.hostname.toLowerCase();
+  const isMediaFire = parsed.protocol === "https:" && (
+    host === "mediafire.com" || host === "www.mediafire.com" || /^download\d+\.mediafire\.com$/.test(host)
+  );
+  const isMega = parsed.protocol === "https:" && (host === "mega.nz" || host === "www.mega.nz") && parsed.pathname.startsWith("/file/");
+  const isGoogleDrive = parsed.protocol === "https:" && host === "drive.usercontent.google.com";
+  if ((!isMediaFire && !isMega && !isGoogleDrive) || !window.BANCA_SUPABASE_URL) return source;
+  const proxyName = isGoogleDrive ? "drive-proxy" : isMega ? "mega-proxy" : "mediafire-proxy";
+  const proxy = new URL(String(window.BANCA_SUPABASE_URL).replace(/\/+$/, "") + "/functions/v1/" + proxyName);
+  proxy.searchParams.set("url", source);
+  return proxy.toString();
+}
+async function fetchFileArrayBuffer(url, onProgress = () => {}, onComplete = () => {}, signal = null, forceFresh = false) {
+  const source = String(url || "");
+  const response = await fetch(/^blob:/i.test(source) ? source : proxiedFileUrl(source), {
+    method: "GET", mode: "cors", credentials: "omit",
+    cache: forceFresh ? "reload" : "no-store",
+    ...(signal ? {signal} : {})
+  });
+  if (!response.ok) throw new Error("HTTP " + response.status);
+  const total = Number(response.headers.get("content-length")) || 0;
+  if (!response.body?.getReader) {
+    const buffer = await response.arrayBuffer();
+    onProgress(buffer.byteLength, total || buffer.byteLength);
+    onComplete();
+    return buffer;
+  }
+  const reader = response.body.getReader(), chunks = [];
+  let received = 0;
+  while (true) {
+    const part = await reader.read();
+    if (part.done) break;
+    chunks.push(part.value);
+    received += part.value.byteLength;
+    onProgress(received, total);
+  }
+  const bytes = new Uint8Array(received);
+  let offset = 0;
+  chunks.forEach(chunk => {bytes.set(chunk, offset); offset += chunk.byteLength;});
+  onComplete();
+  return bytes.buffer;
+}
+async function deleteReaderFileCache() {}
+async function ensureReaderDependency(format) {
+  const deps = window.BancaReaderDeps;
+  if (!deps?.ensure) throw new Error("O carregador original do leitor não foi encontrado.");
+  await deps.ensure(format);
+}
+let readerFormatRenderersPromise = null;
+function appAssetUrl(path) { return new URL(String(path).replace(/^\/+/, ""), BANCADIGITAL_BASE).href; }
+function loadLibarchiveModule() {
+  if (!window.__bancaReaderLibarchive) {
+    window.__bancaReaderLibarchive = Promise.all([
+      import(appAssetUrl("libarchive/libarchive.js")),
+      import(appAssetUrl("libarchive/rar-reader.mjs"))
+    ]).then(([module, rar]) => ({...module, Archive: rar.withSolidRarSupport(module.Archive)}));
+  }
+  return window.__bancaReaderLibarchive;
+}
+function loadReaderFormatRenderers() {
+  if (!readerFormatRenderersPromise) {
+    readerFormatRenderersPromise = import(appAssetUrl("js/reader-formats.js?v=2-telegram-pages"))
+      .then(module => module.createReaderFormats({
+        $, READER_END_PAGE_URL, appAssetUrl, createArchivePageCache,
+        deleteReaderFileCache, ensureReaderDependency, escapeHTML,
+        fetchFileArrayBuffer, finishReaderPageLoading, getReaderPages,
+        getReaderSpreadIndexes, getReaderSpreadPages, hasZipEndRecord,
+        isInvalidZipError, isTelegramMediaUrl, isZipSignature,
+        loadLibarchiveModule, proxiedFileUrl, readerEndPageImage,
+        readerLoadingMarkup, readerLoadingTipMarkup, reportFileFailure,
+        setReadingMode, showReaderPageLoading, state, waitForPrefetchedBuffer
+      })).catch(error => {readerFormatRenderersPromise = null; throw error;});
+  }
+  return readerFormatRenderersPromise;
+}
+async function renderPDFReader(...args) { return (await loadReaderFormatRenderers()).renderPDFReader(...args); }
+async function renderCBZReader(...args) { return (await loadReaderFormatRenderers()).renderCBZReader(...args); }
+async function renderCBRReader(...args) { return (await loadReaderFormatRenderers()).renderCBRReader(...args); }
+
+function canViewCatalogItem() { return true; }
+function isTelegramPostUrl() { return false; }
+function isExternalArchiveLink() { return false; }
+function downloadSource(item) { return String(item?.sourceUrl || item?.fileUrl || item?.url || ""); }
+function readerSourceCandidates(item) {
+  const primary = downloadSource(item);
+  const backups = Array.isArray(item?.backupUrls) ? item.backupUrls : (item?.backupUrl ? [item.backupUrl] : []);
+  return [primary, item?.fileUrl, ...backups].map(value => String(value || "").trim()).filter((value, index, values) => value && values.indexOf(value) === index);
+}
+async function probeReaderSource(url) { return Boolean(url); }
+function activateOfflineMode() {}
+function downloaded() { return null; }
+function openDownloaded() {}
+function setSection() {}
+function navigate() { location.href = BANCADIGITAL_BASE; }
+function prioritizeReaderLoading() {}
+function recordComicRead() {}
+function itemDisplayTitle(item) { return String(item?.title || item?.name || "Quadrinho"); }
+function shouldSkipCover() { return localStorage.getItem("readerSkipCover") === "true"; }
+function progressFor(item) {
+  try { return JSON.parse(localStorage.getItem("reader-progress:" + String(item?.id || "")) || "null"); } catch { return null; }
+}
+function saveReadingProgress(item, page, total) {
+  try {
+    localStorage.setItem("reader-progress:" + String(item?.id || ""), JSON.stringify({
+      page: Number(page) || 1, total_pages: Number(total) || 1,
+      completed: Number(page) >= Number(total) && Number(total) > 0
+    }));
+  } catch {}
+}
+function saveSkipCoverPreference(value) {
+  try {localStorage.setItem("readerSkipCover", value ? "true" : "false");} catch {}
+}
+function characterNames(item) { return Array.isArray(item?.characters) ? item.characters : []; }
+function readerCustomLinksMarkup() { return ""; }
+function isAdminProfile() { return false; }
+function toast(message) {
+  console.warn("[ComicReader]", message);
+  const body = document.querySelector(".reader-body");
+  if (body) {
+    const note = document.createElement("div");
+    note.className = "empty"; note.style.cssText = "margin:auto;max-width:650px;text-align:center;padding:24px";
+    note.textContent = String(message);
+    body.replaceChildren(note);
+  }
+}
+function toggleComicLike() {}
+function shareComic() {}
+function openCommentsPopup() {}
+function seriesEditions() { return []; }
+function openSeriesSelection() {}
+function openEditForm() {}
+function openEntityPage() {}
+function attachComments() {}
+function appendSeriesNavigation() {}
+function resumeCoverLoading() {}
+function setReadingMode(mode) {
+  state.readingMode = mode;
+  try {localStorage.setItem("readingMode", mode);} catch {}
+}
+function setReadingDirection(direction) {
+  state.readingDirection = direction;
+  try {localStorage.setItem("readingDirection", direction);} catch {}
+}
+async function reportFileFailure(item, message, options = {}) {
+  console.error("Leitor:", item?.title || item?.id || "", message);
+  if (!options.silent) toast(message);
+}
+function loadReaderAdsFeature() {
+  return Promise.resolve({createReaderController: () => null});
+}
+async function parseEditionPayload() {
+  let edition = {};
+  const decode = value => {
+    try {
+      const normalized = String(value).replace(/-/g, "+").replace(/_/g, "/");
+      const binary = atob(normalized);
+      const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+      return JSON.parse(new TextDecoder().decode(bytes));
+    } catch (firstError) {
+      try { return JSON.parse(decodeURIComponent(String(value))); } catch { throw firstError; }
+    }
+  };
+  if (params.has("data")) {
+    const value = params.get("data");
+    edition = Object.assign(edition, value.trim().startsWith("{") ? JSON.parse(value) : decode(value));
+  }
+  if (params.has("manifest")) {
+    const response = await fetch(params.get("manifest"), {cache:"no-store"});
+    if (!response.ok) throw new Error("Não foi possível carregar os dados desta edição.");
+    edition = Object.assign(edition, await response.json());
+  }
+  if (params.has("src")) edition.sourceUrl = params.get("src");
+  if (params.has("title")) edition.title = params.get("title");
+  if (params.has("format")) edition.format = params.get("format");
+  if (params.has("pages")) edition.pages = decode(params.get("pages"));
+  return edition;
+}
+function normalizeItem(edition) {
+  activePageUrls = Array.isArray(edition.pages)
+    ? edition.pages.map(value => typeof value === "string" ? value : value?.url || value?.src || "").filter(url => /^https?:\/\//i.test(url))
+    : [];
+  if (!activePageUrls.length && edition.telegramItemId && edition.telegramBaseUrl && Number(edition.pageCount) > 0) {
+    const base = String(edition.telegramBaseUrl).replace(/\/+$/, "");
+    activePageUrls = Array.from({length: Math.min(5000, Number(edition.pageCount))}, (_, index) => {
+      const u = new URL(base + "/functions/v1/telegram-page-image");
+      u.searchParams.set("item_id", String(edition.telegramItemId));
+      u.searchParams.set("page", String(index + 1));
+      return u.href;
+    });
+  }
+  const sourceUrl = String(edition.sourceUrl || edition.fileUrl || edition.url || "");
+  const id = String(edition.id || edition.telegramItemId || "external-edition");
+  activeEditionForPageUrls = id;
+  window.BancaTelegramPages = {
+    imageUrl(itemId, pageNumber) {
+      if (String(itemId) === String(activeEditionForPageUrls) && Number(pageNumber) >= 1) {
+        return activePageUrls[Number(pageNumber) - 1] || "";
+      }
+      return "";
+    }
+  };
+  const isImagePages = activePageUrls.length > 0;
+  const format = isImagePages ? "telegram-pages" : String(edition.format || extension(sourceUrl)).toLowerCase();
+  return {
+    ...edition,
+    id, title: String(edition.title || edition.name || "Quadrinho"),
+    sourceUrl, fileUrl: sourceUrl, backupUrls: edition.backupUrls || [],
+    format, local: false,
+    telegramPages: isImagePages ? activePageUrls.map((url, index) => ({page:index + 1, url})) : undefined
+  };
+}
+function showEmptyReader(message) {
+  const body = $("#reader-body");
+  if (body) body.innerHTML = readerLoadingMarkup(message);
+  const title = $("#editionTitle");
+  if (title) title.textContent = "Leitor de quadrinhos";
+  const counter = $("#reader-controls");
+  if (counter) counter.innerHTML = '<span class="reader-page">— / —</span>';
+}
+async function bootStandaloneReader() {
+  const fallback = $("#reader-overlay");
+  try {
+    const edition = await parseEditionPayload();
+    const hasPayload = Boolean(
+      edition.sourceUrl || edition.fileUrl || edition.url ||
+      (Array.isArray(edition.pages) && edition.pages.length) ||
+      (edition.telegramItemId && edition.telegramBaseUrl && Number(edition.pageCount)) ||
+      edition.telegramPages
+    );
+    if (!hasPayload) {
+      showEmptyReader("Abra uma edição da Banca Digital para começar a leitura.");
+      $("#reading-mode-select")?.setAttribute("disabled", "");
+      return;
+    }
+    const item = normalizeItem(edition);
+    if (Array.isArray(edition.telegramPages) && !item.telegramPages) item.telegramPages = edition.telegramPages;
+    if (edition.telegramItemId && !item.telegramPages && Number(edition.pageCount)) {
+      item.telegramPages = Array.from({length:Number(edition.pageCount)}, (_, index) => ({page:index + 1}));
+      activePageUrls = item.telegramPages.map((_, index) => {
+        const u = new URL(String(edition.telegramBaseUrl).replace(/\/+$/, "") + "/functions/v1/telegram-page-image");
+        u.searchParams.set("item_id", String(edition.telegramItemId));
+        u.searchParams.set("page", String(index + 1));
+        return u.href;
+      });
+      activeEditionForPageUrls = item.id;
+    }
+    fallback?.remove();
+    state.readerItemId = item.id;
+    activeReaderCleanup = null;
+    readerIsOpen = false;
+    openReader(item, {routeSync:true, skipCover: edition.skipCover === true});
+  } catch (error) {
+    showEmptyReader(error?.message || "Não foi possível carregar a edição.");
+  }
+}
+
+
+async function renderTelegramPagesReader(item, body, controls, overlay, skipCover = false, resumePage = 1, onPageChange = () => {}) {
+    const pages = Array.isArray(item.telegramPages) ? item.telegramPages : [];
+    if (!pages.length || !window.BancaTelegramPages?.imageUrl) throw new Error("Esta edição não possui páginas JPEG válidas no Telegram.");
+    const total = pages.length + 1;
+    const first = skipCover && pages.length > 1 ? 2 : 1;
+    let page = Math.max(first, Math.min(Number(resumePage) || first, total));
+    let token = 0;
+    const cache = new Map();
+    const pending = new Map();
+    const load = n => {
+      if (n < 1 || n > pages.length) return Promise.resolve(null);
+      if (cache.has(n)) return Promise.resolve(cache.get(n));
+      if (!pending.has(n)) {
+        const promise = (async () => {
+          let lastError;
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              const img = await new Promise((resolve, reject) => {
+                const candidate = new Image();
+                let settled = false;
+                const finish = (fn, value) => {
+                  if (settled) return;
+                  settled = true;
+                  clearTimeout(timer);
+                  candidate.onload = null;
+                  candidate.onerror = null;
+                  fn(value);
+                };
+                const timer = setTimeout(() => {
+                  candidate.src = "";
+                  finish(reject, new Error("Tempo esgotado ao carregar página " + n));
+                }, 5000);
+                candidate.decoding = "async";
+                candidate.onload = () => finish(resolve, candidate);
+                candidate.onerror = () => finish(reject, new Error("Falha ao carregar página " + n));
+                candidate.src = window.BancaTelegramPages.imageUrl(item.id, n);
+              });
+              cache.set(n, img);
+              return img;
+            } catch (error) { lastError = error; }
+          }
+          throw lastError || new Error("Falha ao carregar página " + n);
+        })();
+        pending.set(n, promise);
+        promise.then(() => pending.delete(n), () => pending.delete(n));
+      }
+      return pending.get(n);
+    };
+    const warm = n => {
+      // Prioridade imediata: duas páginas anteriores e duas posteriores.
+      for (const next of [n - 2, n - 1, n + 1, n + 2]) {
+        if (next >= first && next <= pages.length && !cache.has(next) && !pending.has(next)) {
+          void load(next).catch(() => {});
+        }
+      }
+    };
+    let backgroundStarted = false;
+    const preloadAllInBackground = () => {
+      if (backgroundStarted) return;
+      backgroundStarted = true;
+      // Carrega a edição inteira em segundo plano, sem disparar centenas de pedidos simultâneos.
+      const queue = Array.from({ length: pages.length }, (_, i) => i + 1)
+        .filter(n => n >= first && n <= pages.length && !cache.has(n))
+        .sort((a, b) => Math.abs(a - page) - Math.abs(b - page));
+      let cursor = 0;
+      const worker = async () => {
+        while (cursor < queue.length) {
+          const n = queue[cursor++];
+          if (cache.has(n)) continue;
+          try { await load(n); } catch { /* A navegação pode tentar novamente quando a página for solicitada. */ }
+        }
+      };
+      void Promise.all([worker(), worker()]);
+    };
+    const drawSingle = async () => {
+      const current = ++token;
+      const showControls = () => {
+        controls.innerHTML = '<button data-prev ' + (page <= first ? "disabled" : "") + '>‹</button><span class="reader-page">' + page + ' / ' + total + '</span><button data-next ' + (page >= total ? "disabled" : "") + '>›</button>';
+        $("[data-prev]", controls)?.addEventListener("click", () => {
+          if (page > first) { page--; drawSingle(); }
+        });
+        $("[data-next]", controls)?.addEventListener("click", () => {
+          if (page < total) { page++; drawSingle(); }
+        });
+      };
+      showControls();
+      onPageChange(item, page, total);
+      if (page === total) {
+        body.replaceChildren(readerEndPageImage());
+        return;
+      }
+      // Keep the controls live while the image loads; a slow request can't lock navigation.
+      body.innerHTML = '<div class="empty" style="margin:auto">Carregando página ' + page + '…</div>';
+      try {
+        const requestedPage = page;
+        const loaded = await load(requestedPage);
+        if (current !== token || requestedPage !== page) return;
+        const img = document.createElement("img");
+        img.className = "reader-image";
+        img.alt = "Página " + requestedPage;
+        img.decoding = "async";
+        img.src = loaded.src;
+        body.replaceChildren(img);
+        warm(requestedPage);
+      } catch {
+        if (current !== token || page < 1 || page > pages.length) return;
+        body.innerHTML = '<div class="empty" style="margin:auto">Falha ao carregar esta página. <button type="button" data-retry-page>Tentar novamente</button></div>';
+        $("[data-retry-page]", body)?.addEventListener("click", () => {
+          cache.delete(page);
+          pending.delete(page);
+          drawSingle();
+        }, { once: true });
+      }
+      if (current !== token) return;
+      showControls();
+      onPageChange(item, page, total);
+    };
+    const drawDouble = async () => {
+      const current = ++token;
+      const start = page === total ? total : Math.max(first, page <= first + 1 ? first : (page % 2 ? page - 1 : page));
+      const nums = start === total ? [total] : [start, Math.min(start + 1, pages.length)];
+      const spread = document.createElement("div"); spread.className = "reader-double-page";
+      try {
+        for (const n of nums) {
+          const wrapper = document.createElement("div"); wrapper.className = "double-page";
+          if (n === total) wrapper.appendChild(readerEndPageImage());
+          else { const loaded = await load(n); if (current !== token) return; const img = document.createElement("img"); img.className = "reader-image"; img.alt = "Página " + n; img.src = loaded.src; wrapper.appendChild(img); warm(n); }
+          spread.appendChild(wrapper);
+        }
+      } catch { if (current === token) body.innerHTML = '<div class="empty" style="margin:auto">Não foi possível carregar as páginas do Telegram.</div>'; return; }
+      if (current !== token) return;
+      body.replaceChildren(spread);
+      controls.innerHTML = '<button data-prev ' + (start <= first ? "disabled" : "") + '>‹</button><span class="reader-page">' + nums.join("–") + ' / ' + total + '</span><button data-next ' + (nums[nums.length - 1] >= total ? "disabled" : "") + '>›</button>';
+      $("[data-prev]", controls)?.addEventListener("click", () => { if (start > first) { page = Math.max(first, start - 2); draw(); } });
+      $("[data-next]", controls)?.addEventListener("click", () => { if (nums[nums.length - 1] < total) { page = Math.min(total, start + 2); draw(); } });
+      onPageChange(item, start, total);
+    };
+    const drawScroll = () => {
+      ++token;
+      const container = document.createElement("div"); container.className = "image-continuous-scroll-container";
+      const els = [];
+      for (let n = first; n <= total; n++) {
+        const wrapper = document.createElement("div"); wrapper.className = "image-page-wrapper"; wrapper.dataset.pageNum = String(n);
+        if (n === total) wrapper.appendChild(readerEndPageImage());
+        else { const img = document.createElement("img"); img.className = "reader-image"; img.alt = "Página " + n; img.loading = "lazy"; img.decoding = "async"; img.src = window.BancaTelegramPages.imageUrl(item.id, n); wrapper.appendChild(img); }
+        container.appendChild(wrapper); els.push(wrapper);
+      }
+      body.replaceChildren(container);
+      const update = () => {
+        const visible = els.find(el => { const rect = el.getBoundingClientRect(); return rect.bottom > 0 && rect.top < window.innerHeight / 2; }) || els[0];
+        if (!visible) return;
+        page = Number(visible.dataset.pageNum);
+        controls.innerHTML = '<button data-prev ' + (page <= first ? "disabled" : "") + '>↑</button><span class="reader-page">' + page + ' / ' + total + '</span><button data-next ' + (page >= total ? "disabled" : "") + '>↓</button>';
+        $("[data-prev]", controls)?.addEventListener("click", () => els[Math.max(0, els.indexOf(visible) - 1)]?.scrollIntoView({behavior:"smooth",block:"start"}));
+        $("[data-next]", controls)?.addEventListener("click", () => els[Math.min(els.length - 1, els.indexOf(visible) + 1)]?.scrollIntoView({behavior:"smooth",block:"start"}));
+        onPageChange(item, page, total);
+      };
+      container.addEventListener("scroll", update, {passive:true}); update();
+      els.find(el => Number(el.dataset.pageNum) === page)?.scrollIntoView({block:"start"});
+      overlay._telegramPagesScrollCleanup = () => container.removeEventListener("scroll", update);
+    };
+    const draw = () => state.readingMode === "continuous-scroll" ? drawScroll() : state.readingMode === "double-page" ? void drawDouble() : void drawSingle();
+    preloadAllInBackground();
+    const selector = $("#reading-mode-select", overlay);
+    if (selector) { selector.disabled = false; selector.addEventListener("change", event => { setReadingMode(event.target.value); draw(); }); }
+    draw();
+    overlay._telegramPagesCleanup = () => { token++; cache.clear(); pending.clear(); overlay._telegramPagesScrollCleanup?.(); };
+    return true;
+  }
+
+function openReader(item, options = {}) {
+    if (!item) return;
+    const telegramPagesMode = !item.local && Array.isArray(item.telegramPages) && item.telegramPages.length > 0;
+    if (!canViewCatalogItem(item)) {
+      toast("Esta edição está indisponível.");
+      return;
+    }
+    if (!telegramPagesMode && !options.telegramResolved && !item.local && isTelegramPostUrl(item.telegramUrl) && navigator.onLine !== false && sb) {
+      if (readerIsOpen && activeReaderCleanup && String(state.readerItemId || "") === String(item.id || "") && document.querySelector(".reader-overlay")) return;
+      void window.BancaTelegram.published(item, sb).then(canonical => {
+        if (!canonical.telegramFileId && !canonical.fileUrl) {
+          const published = (window.DEFAULT_LIBRARY || []).find(entry => String(entry.id) === String(item.id));
+          if (published && (published.telegramFileId || published.fileUrl)) {
+            openReader(mergeCatalogEdition(item, published), { ...options, telegramResolved: true });
+            return;
+          }
+          toast("Esta postagem ainda não foi identificada pelo bot. Um administrador precisa salvar a edição novamente.");
+          return;
+        }
+        openReader(canonical, { ...options, telegramResolved: true });
+      }).catch(error => toast(`Não foi possível consultar a fonte do Telegram: ${error.message || error}`));
+      return;
+    }
+    if (!item) return;
+    if (readerIsOpen && activeReaderCleanup && String(state.readerItemId || "") === String(item.id || "") && document.querySelector(".reader-overlay")) return;
+    if (!canViewCatalogItem(item)) {
+      toast("Esta edição está indisponível.");
+      return;
+    }
+    if (!telegramPagesMode && !downloadSource(item) && item?.officialUrl) {
+      window.open(item.officialUrl, "_blank", "noopener");
+      return;
+    }
+    const sourceUrl = telegramPagesMode ? window.BancaTelegramPages?.imageUrl(item.id, 1) : downloadSource(item);
+    if (isExternalArchiveLink(sourceUrl)) {
+      window.open(sourceUrl, "_blank", "noopener");
+      return;
+    }
+
+    if (!item.local && navigator.onLine === false) {
+      activateOfflineMode();
+      if (downloaded(item.id)?.status === "completed") return openDownloaded(item);
+      toast("Este quadrinho não está disponível offline. Abra a área de Downloads para ver os quadrinhos baixados.");
+      setSection("downloads");
+      return;
+    }
+
+    state.recentlyOpenedIds = [String(item.id), ...state.recentlyOpenedIds.filter(id => String(id) !== String(item.id))].slice(0, 20);
+    try { localStorage.setItem("bancaDigitalRecentlyOpened", JSON.stringify(state.recentlyOpenedIds)); } catch {}
+
+    prioritizeReaderLoading();
+
+    if (!item.local && !options.routeSync) {
+      navigate({ ler: item.id });
+      return;
+    }
+
+    activeReaderCleanup?.();
+    activeReaderCleanup = null;
+
+    recordComicRead(item);
+    const sourceCandidates = telegramPagesMode ? [sourceUrl].filter(Boolean) : readerSourceCandidates(item);
+    let resolvedUrl = sourceCandidates[0] || "";
+
+    if (!resolvedUrl) {
+      toast(item.telegramUrl ? "Esta edição do Telegram ainda não tem o file_id do bot configurado." : "Esta edição não tem uma URL de arquivo direto.");
+      return;
+    }
+
+    readerIsOpen = true;
+    prioritizeReaderLoading();
+
+    const prefetchedBuffer = isTelegramMediaUrl(resolvedUrl) ? null : readerFilePrefetches.get(resolvedUrl) || null;
+    readerFilePrefetches.delete(resolvedUrl);
+    const itemFormat = String(item.format || "").toLowerCase();
+    const fileFormat = extension(item.file?.name || item.name || "");
+    const format = telegramPagesMode ? "telegram-pages" : (/^(pdf|cbz|cbr|jpg|jpeg|png|webp|gif)$/.test(itemFormat)
+      ? itemFormat
+      : (fileFormat || extension(resolvedUrl)).toLowerCase());
+    const skipCover = Object.prototype.hasOwnProperty.call(options, "skipCover") ? options.skipCover === true : shouldSkipCover();
+    const savedProgress = progressFor(item);
+    const resumePage = savedProgress?.page || (skipCover ? 2 : 1);
+    let readerGrayscale = options.grayscale === true;
+    const overlay = document.createElement("div");
+    overlay.className = "reader-overlay";
+    const supportedFormatsForModes = ["pdf", "cbz", "cbr", "telegram-pages"];
+    const showModeSelector = supportedFormatsForModes.includes(format);
+    overlay.innerHTML = `
+      <div class="reader-top">
+        <div class="reader-top-primary">
+          <button class="small-btn" data-close-reader>← Voltar</button>
+          <div class="reader-title">${escapeHTML(itemDisplayTitle(item))}</div>
+          <button class="small-btn" data-reader-home>Início</button>
+        </div>
+        <div class="reader-top-reading">
+          ${showModeSelector ? `
+            <select class="small-btn" id="reading-mode-select" disabled>
+              <option value="single-page" ${state.readingMode === 'single-page' ? 'selected' : ''}>Página por página</option>
+              <option value="double-page" ${state.readingMode === 'double-page' ? 'selected' : ''}>
+                Duas páginas
+              </option>
+              <option value="continuous-scroll" ${state.readingMode === 'continuous-scroll' ? 'selected' : ''}>Rolagem contínua</option>
+            </select>
+          ` : ''}
+          <button class="small-btn" id="reading-direction-btn" style="display: ${showModeSelector && state.readingMode === 'double-page' ? 'inline-block' : 'none'};">
+            ${state.readingDirection === 'eastern' ? '↔ Oriental' : '↔ Ocidental'}
+          </button>
+          ${showModeSelector ? `<button class="small-btn" data-toggle-cover>${skipCover ? 'Incluir capa' : 'Ignorar capa'}</button>` : ''}
+          <button class="small-btn" data-toggle-grayscale>${readerGrayscale ? 'Cor normal' : 'Preto e branco'}</button>
+          <button class="small-btn" data-reader-zoom>Zoom</button>
+          ${state.session && !item.local ? `<button class="small-btn" data-toggle-read>${savedProgress?.completed ? 'Desmarcar como lida' : 'Marcar como lida'}</button>` : ''}
+        </div>
+        <div class="reader-top-actions">
+          ${!state.session?.offline ? readerCustomLinksMarkup(item) : ""}
+          ${state.profile?.plan === "admin" && !state.session?.offline ? `<button class="small-btn" data-open-external>Ver arquivo</button>` : ''}
+        </div>
+      </div>
+      <div class="reader-body" id="reader-body"></div>
+      <div class="reader-bottom-controls">
+        <div class="reader-series-controls reader-series-prev" id="reader-series-prev"></div>
+        <div class="reader-controls" id="reader-controls"><span class="reader-page">O primeiro carregamento costuma ser demorado.</span></div>
+        <div class="reader-series-controls reader-series-next" id="reader-series-next"></div>
+      </div>
+      <div class="reader-footer">
+        ${!item.local && !state.session?.offline && sb ? '<button type="button" class="reader-comments-toggle" data-reader-comments-toggle aria-expanded="false">＋ Comentários</button>' : '<span></span>'}
+        <div class="reader-footer-actions">
+          ${!state.session?.offline && characterNames(item)[0] ? `<button class="small-btn" data-browse-character="${escapeHTML(characterNames(item)[0])}">Ver personagem</button>` : ''}
+          ${!state.session?.offline && item.publisher ? `<button class="small-btn" data-browse-publisher>Ver editora</button>` : ''}
+          ${!item.local ? `<button class="small-btn reader-like-button ${state.comicLikeIds.has(item.id) ? "is-liked" : ""}" data-like-item="${escapeHTML(item.id)}">${state.comicLikeIds.has(item.id) ? "♥" : "♡"} ${state.comicLikeCounts.get(item.id) || 0}</button><button class="small-btn" data-share-item="${escapeHTML(item.id)}">Compartilhar</button>` : ""}
+          ${item.seriesId ? `<button class="small-btn" data-view-series="${escapeHTML(item.seriesId)}">Série</button>` : ""}
+          ${isAdminProfile() && !item.local && !state.session?.offline ? '<button class="small-btn" type="button" data-reader-edit>Editar</button>' : ''}
+        </div>
+        <div class="reader-comments" data-reader-comments-panel hidden></div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const closeReaderButton = $("[data-close-reader]", overlay);
+    const readerHomeButton = $("[data-reader-home]", overlay);
+    let readerExitToHome = false;
+    let removeReaderSwipeListeners = () => {};
+    let readerSingleClickTimer = null;
+    let readerAdControllerPromise = Promise.resolve(null);
+    const cleanupReader = () => {
+      if (activeReaderCleanup === cleanupReader) activeReaderCleanup = null;
+      readerIsOpen = false;
+      if (readerSingleClickTimer) window.clearTimeout(readerSingleClickTimer);
+      readerSingleClickTimer = null;
+      overlay._pdfDownloadController?.abort();
+      overlay._cbzDownloadController?.abort();
+      overlay._cbrDownloadController?.abort();
+      overlay.remove();
+      resumeCoverLoading();
+      if (options.localObjectUrl) URL.revokeObjectURL(options.localObjectUrl);
+      removeReaderSwipeListeners();
+      void readerAdControllerPromise.then(controller => controller?.destroy()).catch(() => {});
+    };
+    activeReaderCleanup = cleanupReader;
+    // Preserve the temporary Blob URL when the reader is re-opened for a
+    // layout change. This is essential for files opened from offline storage.
+    overlay._reopenReader = (nextOptions = {}) => {
+      const localObjectUrl = options.localObjectUrl;
+      options.localObjectUrl = null;
+      activeReaderCleanup?.();
+      openReader(item, {
+        ...nextOptions,
+        localObjectUrl,
+        routeSync: true,
+        grayscale: readerGrayscale
+      });
+    };
+    closeReaderButton.onclick = () => {
+      cleanupReader();
+      if (readerExitToHome) {
+        readerExitToHome = false;
+        navigate({ pagina: state.session?.offline ? "downloads" : "" }, true);
+        return;
+      }
+      // A rota do leitor já foi adicionada ao histórico ao abrir o gibi.
+      // Voltar de fato uma entrada evita que o botão Voltar gere um novo
+      // histórico e depois reabra o leitor ao ser pressionado novamente.
+      if (currentRouteHistoryIndex() > 0) window.history.back();
+      else navigate({ pagina: state.session?.offline ? "downloads" : "" }, true);
+    };
+    readerHomeButton.onclick = () => {
+      readerExitToHome = true;
+      closeReaderButton.click();
+    };
+    $("[data-like-item]", overlay)?.addEventListener("click", event => { event.stopPropagation(); toggleComicLike(item.id); });
+    $("[data-share-item]", overlay)?.addEventListener("click", event => { event.stopPropagation(); shareComic(item.id); });
+    $("[data-comment-item]", overlay)?.addEventListener("click", event => { event.stopPropagation(); openCommentsPopup(item); });
+    $("[data-view-series]", overlay)?.addEventListener("click", event => {
+      event.stopPropagation();
+      const editions = seriesEditions(item);
+      cleanupReader();
+      setSection("home");
+      openSeriesSelection(item, editions, false, false, item);
+    });
+    $$('[data-reader-custom-link]', overlay).forEach(button => button.addEventListener("click", () => window.open(button.dataset.readerCustomLink, "_blank", "noopener")));
+    $("[data-open-external]", overlay)?.addEventListener("click", () => window.open(resolvedUrl, "_blank", "noopener"));
+    $("[data-reader-edit]", overlay)?.addEventListener("click", event => {
+      event.stopPropagation();
+      openEditForm(item.id);
+    });
+    $("[data-toggle-cover]", overlay)?.addEventListener("click", () => {
+      const nextSkipCover = !skipCover;
+      if (state.session?.user?.id) saveSkipCoverPreference(nextSkipCover);
+      const localObjectUrl = options.localObjectUrl;
+      options.localObjectUrl = null;
+      cleanupReader();
+      openReader(item, { skipCover: nextSkipCover, localObjectUrl, routeSync: true, grayscale: readerGrayscale });
+    });
+
+    $("[data-toggle-grayscale]", overlay)?.addEventListener("click", event => {
+      readerGrayscale = !readerGrayscale;
+      body.classList.toggle("reader-grayscale", readerGrayscale);
+      event.currentTarget.textContent = readerGrayscale ? "Cor normal" : "Preto e branco";
+    });
+    $$('[data-browse-character]', overlay).forEach(button => button.addEventListener("click", () => { overlay.remove(); openEntityPage("character", button.dataset.browseCharacter); }));
+    $("[data-browse-publisher]", overlay)?.addEventListener("click", () => { overlay.remove(); openEntityPage("publisher", item.publisher); });
+
+    const body = $("#reader-body", overlay);
+    const controls = $("#reader-controls", overlay);
+    if (!item.local && !state.session?.offline && sb) {
+      readerAdControllerPromise = loadReaderAdsFeature()
+        .then(feature => feature.createReaderController(item, body))
+        .catch(error => { console.warn("Propagandas do leitor indisponíveis:", error); return null; });
+    }
+    body.addEventListener("contextmenu", async event => {
+      if (!event.target.closest("img.reader-image")) return;
+      event.preventDefault();
+
+      try {
+        const imageUrl = new URL("assets/Baixarpaginas.jpg", document.baseURI).href;
+        const response = await fetch(imageUrl, { cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const imageBlob = await response.blob();
+        const downloadUrl = URL.createObjectURL(new Blob([imageBlob], { type: "image/jpeg" }));
+        const downloadLink = document.createElement("a");
+        downloadLink.href = downloadUrl;
+        downloadLink.download = "Baixarpaginas.jpg";
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        downloadLink.remove();
+        window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+      } catch (error) {
+        console.warn("Não foi possível baixar a imagem de proteção:", error);
+        toast("Não foi possível baixar a imagem de proteção.");
+      }
+    });
+    body.classList.toggle("reader-page-swipe", ["single-page", "double-page"].includes(state.readingMode));
+    const toggleReadButton = $("[data-toggle-read]", overlay);
+    if (toggleReadButton) toggleReadButton.disabled = true;
+    const markReaderReady = () => { if (toggleReadButton) toggleReadButton.disabled = false; };
+    let readerReadyObserver = null;
+    if (toggleReadButton && "MutationObserver" in window) {
+      readerReadyObserver = new MutationObserver(() => {
+        if (body.querySelector("canvas, img, .image-continuous-scroll-container, .pdf-continuous-scroll-container, .reader-double-page")) {
+          markReaderReady();
+          readerReadyObserver.disconnect();
+          readerReadyObserver = null;
+        }
+      });
+      readerReadyObserver.observe(body, { childList: true, subtree: true });
+    }
+    toggleReadButton?.addEventListener("click", event => {
+      const completed = toggleReadingCompleted(item, progressFor(item)?.total_pages || 1);
+      event.currentTarget.textContent = completed ? "Desmarcar como lida" : "Marcar como lida";
+    });
+    overlay._readerNavigate = direction => {
+      const button = direction > 0 ? $("[data-next]", controls) : $("[data-prev]", controls);
+      if (button && !button.disabled) button.click();
+    };
+    const toggleReaderChrome = () => overlay.classList.toggle("reader-immersive");
+    const readerZoomButton = $("[data-reader-zoom]", overlay);
+    let readerZoom = 1;
+    const READER_DEFAULT_ZOOM = 1;
+    const READER_BUTTON_ZOOM = 2;
+    let readerZoomOrigin = { x: "50%", y: "50%" };
+    let readerPan = { x: 0, y: 0 };
+    let readerPanPointer = null;
+    let lastReaderZoomAt = 0;
+    const setReaderZoom = (nextZoom, origin = readerZoomOrigin) => {
+      readerZoom = Math.max(1, Math.min(3, nextZoom));
+      readerZoomOrigin = origin;
+      if (readerZoom === READER_DEFAULT_ZOOM) readerPan = { x: 0, y: 0 };
+      body.style.setProperty("--reader-zoom", String(readerZoom));
+      body.style.setProperty("--reader-pan-x", `${readerPan.x}px`);
+      body.style.setProperty("--reader-pan-y", `${readerPan.y}px`);
+      body.style.setProperty("--reader-origin-x", origin.x);
+      body.style.setProperty("--reader-origin-y", origin.y);
+      body.classList.toggle("reader-gesture-zoom", readerZoom > 1);
+      readerZoomButton.textContent = readerZoom > 1 ? `Zoom ${Math.round(readerZoom * 100)}%` : "Zoom";
+    };
+    const toggleReaderZoom = (origin = readerZoomOrigin) => {
+      lastReaderZoomAt = Date.now();
+      lastReaderClickAt = 0;
+      if (readerSingleClickTimer) {
+        window.clearTimeout(readerSingleClickTimer);
+        readerSingleClickTimer = null;
+      }
+      setReaderZoom(readerZoom >= READER_BUTTON_ZOOM ? READER_DEFAULT_ZOOM : READER_BUTTON_ZOOM, origin);
+      overlay.classList.add("reader-immersive");
+    };
+    readerZoomButton.onclick = () => toggleReaderZoom();
+    let readerSwipe = null;
+    let suppressReaderClick = false;
+    let lastReaderClickAt = 0;
+    let ignoreReaderClicksUntil = 0;
+    const activeReaderPointers = new Map();
+    let readerPinchStart = null;
+    let lastReaderTap = 0;
+    let readerTap = null;
+    const readerZoomOriginAt = (clientX, clientY) => {
+      const rect = body.getBoundingClientRect();
+      return { x: `${Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100))}%`, y: `${Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100))}%` };
+    };
+    const readerPointerDistance = () => {
+      const points = [...activeReaderPointers.values()];
+      return points.length < 2 ? 0 : Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+    };
+    const readerPointerCenter = () => {
+      const points = [...activeReaderPointers.values()];
+      return { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 };
+    };
+    const onReaderPointerDown = event => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      if (event.target.closest("button, a, select, textarea, input")) return;
+      activeReaderPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      body.setPointerCapture?.(event.pointerId);
+      if (activeReaderPointers.size === 2) {
+        readerPanPointer = null;
+        readerSwipe = null;
+        readerTap = null;
+        readerPinchStart = { distance: readerPointerDistance(), zoom: readerZoom };
+        ignoreReaderClicksUntil = Date.now() + 600;
+        body.classList.add("reader-panning");
+        event.preventDefault();
+        return;
+      }
+      if (readerZoom > 1) {
+        readerPanPointer = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, startX: readerPan.x, startY: readerPan.y };
+        body.setPointerCapture?.(event.pointerId);
+        body.classList.add("reader-panning");
+        event.preventDefault();
+        return;
+      }
+      readerTap = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+      if (!["single-page", "double-page"].includes(state.readingMode)) return;
+      readerSwipe = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    };
+    const onReaderPointerMove = event => {
+      if (activeReaderPointers.has(event.pointerId)) activeReaderPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (readerPinchStart && activeReaderPointers.size >= 2) {
+        const distance = readerPointerDistance();
+        const center = readerPointerCenter();
+        const rect = body.getBoundingClientRect();
+        if (distance > 0 && rect.width && rect.height) {
+          setReaderZoom(readerPinchStart.zoom * distance / readerPinchStart.distance, {
+            x: `${((center.x - rect.left) / rect.width) * 100}%`,
+            y: `${((center.y - rect.top) / rect.height) * 100}%`
+          });
+          event.preventDefault();
+        }
+        return;
+      }
+      if (readerPanPointer && event.pointerId === readerPanPointer.pointerId) {
+        readerPan = {
+          x: readerPanPointer.startX + event.clientX - readerPanPointer.x,
+          y: readerPanPointer.startY + event.clientY - readerPanPointer.y
+        };
+        body.style.setProperty("--reader-pan-x", `${readerPan.x}px`);
+        body.style.setProperty("--reader-pan-y", `${readerPan.y}px`);
+        body.classList.add("reader-panning");
+        event.preventDefault();
+        return;
+      }
+      if (!readerSwipe || event.pointerId !== readerSwipe.pointerId) return;
+      const dx = event.clientX - readerSwipe.x;
+      const dy = event.clientY - readerSwipe.y;
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      if (Math.abs(dx) > Math.abs(dy)) {
+        event.preventDefault();
+        body.setPointerCapture?.(event.pointerId);
+      }
+    };
+    const finishReaderSwipeAt = (clientX, clientY) => {
+      if (!readerSwipe) return;
+      const swipe = readerSwipe;
+      readerSwipe = null;
+      const distance = clientX - swipe.x;
+      const verticalDistance = Math.abs(clientY - swipe.y);
+      if (Math.abs(distance) < 45 || Math.abs(distance) <= verticalDistance) return;
+      suppressReaderClick = true;
+      window.setTimeout(() => { suppressReaderClick = false; }, 500);
+      overlay._readerNavigate?.(distance < 0 ? 1 : -1);
+    };
+    const finishReaderSwipe = event => {
+      activeReaderPointers.delete(event.pointerId);
+      if (readerPanPointer && event.pointerId === readerPanPointer.pointerId) {
+        readerPanPointer = null;
+        body.classList.remove("reader-panning");
+        body.releasePointerCapture?.(event.pointerId);
+        event.preventDefault();
+        return;
+      }
+      if (readerPinchStart) {
+        if (activeReaderPointers.size < 2) {
+          readerPinchStart = null;
+          ignoreReaderClicksUntil = Date.now() + 600;
+          body.classList.remove("reader-panning");
+        }
+        body.releasePointerCapture?.(event.pointerId);
+        event.preventDefault();
+        return;
+      }
+      const tap = readerTap;
+      readerTap = null;
+      if (tap && Math.hypot(event.clientX - tap.x, event.clientY - tap.y) < 20) {
+        const now = Date.now();
+        if (now - lastReaderTap < 320) {
+          suppressReaderClick = true;
+          toggleReaderZoom(readerZoomOriginAt(event.clientX, event.clientY));
+          lastReaderTap = 0;
+        } else {
+          lastReaderTap = now;
+        }
+        readerSwipe = null;
+        return;
+      }
+      if (!readerSwipe || event.pointerId !== readerSwipe.pointerId) return;
+      event.preventDefault();
+      body.releasePointerCapture?.(event.pointerId);
+      const now = Date.now();
+      if (event.pointerType !== "mouse" && now - lastReaderTap < 320) {
+        readerSwipe = null;
+        suppressReaderClick = true;
+        toggleReaderZoom(readerZoomOriginAt(event.clientX, event.clientY));
+        lastReaderTap = 0;
+        return;
+      }
+      lastReaderTap = now;
+      finishReaderSwipeAt(event.clientX, event.clientY);
+    };
+    const onReaderTouchStart = event => {
+      if (!["single-page", "double-page"].includes(state.readingMode) || event.touches.length !== 1) return;
+      if (readerZoom > 1) return;
+      if (event.target.closest("button, a, select, textarea, input")) return;
+      const touch = event.touches[0];
+      readerSwipe = { pointerId: null, x: touch.clientX, y: touch.clientY };
+    };
+    const onReaderTouchMove = event => {
+      if (readerZoom > 1 && readerPanPointer && event.touches.length === 1) {
+        const touch = event.touches[0];
+        readerPan = {
+          x: readerPanPointer.startX + touch.clientX - readerPanPointer.x,
+          y: readerPanPointer.startY + touch.clientY - readerPanPointer.y
+        };
+        body.style.setProperty("--reader-pan-x", `${readerPan.x}px`);
+        body.style.setProperty("--reader-pan-y", `${readerPan.y}px`);
+        event.preventDefault();
+        return;
+      }
+      if (!readerSwipe || event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      const dx = touch.clientX - readerSwipe.x;
+      const dy = touch.clientY - readerSwipe.y;
+      if (Math.abs(dx) > Math.abs(dy)) event.preventDefault();
+    };
+    const onReaderTouchEnd = event => {
+      if (!readerSwipe) return;
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      event.preventDefault();
+      finishReaderSwipeAt(touch.clientX, touch.clientY);
+    };
+    const onReaderMouseDown = event => {
+      if (event.button !== 0 || !["single-page", "double-page"].includes(state.readingMode)) return;
+      if (readerZoom > 1) return;
+      if (event.target.closest("button, a, select, textarea, input")) return;
+      readerSwipe = { pointerId: null, x: event.clientX, y: event.clientY };
+    };
+    const onReaderMouseMove = event => {
+      if (readerZoom > 1 && readerPanPointer) {
+        readerPan = {
+          x: readerPanPointer.startX + event.clientX - readerPanPointer.x,
+          y: readerPanPointer.startY + event.clientY - readerPanPointer.y
+        };
+        body.style.setProperty("--reader-pan-x", `${readerPan.x}px`);
+        body.style.setProperty("--reader-pan-y", `${readerPan.y}px`);
+        event.preventDefault();
+        return;
+      }
+      if (!readerSwipe) return;
+      const dx = event.clientX - readerSwipe.x;
+      const dy = event.clientY - readerSwipe.y;
+      if (Math.abs(dx) > Math.abs(dy)) event.preventDefault();
+    };
+    const onReaderMouseUp = event => {
+      if (!readerSwipe) return;
+      event.preventDefault();
+      finishReaderSwipeAt(event.clientX, event.clientY);
+    };
+    const cancelReaderSwipe = () => { readerSwipe = null; readerTap = null; readerPanPointer = null; body.classList.remove("reader-panning"); activeReaderPointers.clear(); readerPinchStart = null; };
+    const preventReaderDrag = event => event.preventDefault();
+    body.addEventListener("pointerdown", onReaderPointerDown);
+    body.addEventListener("pointermove", onReaderPointerMove, { passive: false });
+    body.addEventListener("pointerup", finishReaderSwipe);
+    body.addEventListener("pointercancel", cancelReaderSwipe);
+    body.addEventListener("dragstart", preventReaderDrag);
+    body.addEventListener("touchstart", onReaderTouchStart, { passive: true });
+    body.addEventListener("touchmove", onReaderTouchMove, { passive: false });
+    body.addEventListener("touchend", onReaderTouchEnd, { passive: false });
+    body.addEventListener("mousedown", onReaderMouseDown);
+    document.addEventListener("mousemove", onReaderMouseMove, { passive: false });
+    document.addEventListener("mouseup", onReaderMouseUp, { passive: false });
+    removeReaderSwipeListeners = () => {
+      body.removeEventListener("pointerdown", onReaderPointerDown);
+      body.removeEventListener("pointermove", onReaderPointerMove);
+      body.removeEventListener("pointerup", finishReaderSwipe);
+      body.removeEventListener("pointercancel", cancelReaderSwipe);
+      body.removeEventListener("dragstart", preventReaderDrag);
+      body.removeEventListener("touchstart", onReaderTouchStart);
+      body.removeEventListener("touchmove", onReaderTouchMove);
+      body.removeEventListener("touchend", onReaderTouchEnd);
+      body.removeEventListener("mousedown", onReaderMouseDown);
+      document.removeEventListener("mousemove", onReaderMouseMove);
+      document.removeEventListener("mouseup", onReaderMouseUp);
+    };
+    body.addEventListener("click", event => {
+      const now = Date.now();
+      if (now < ignoreReaderClicksUntil) {
+        lastReaderClickAt = 0;
+        return;
+      }
+      const isDoubleReaderClick = event.detail >= 2 || (now - lastReaderClickAt > 0 && now - lastReaderClickAt < 360);
+      if (isDoubleReaderClick) {
+        if (readerSingleClickTimer) {
+          window.clearTimeout(readerSingleClickTimer);
+          readerSingleClickTimer = null;
+        }
+        lastReaderClickAt = 0;
+        if (suppressReaderClick) {
+          suppressReaderClick = false;
+          return;
+        }
+        toggleReaderZoom(readerZoomOriginAt(event.clientX, event.clientY));
+        return;
+      }
+      lastReaderClickAt = now;
+      if (suppressReaderClick) {
+        suppressReaderClick = false;
+        return;
+      }
+      if (event.target.closest("button, a, select, textarea")) {
+        return;
+      }
+      if (readerSingleClickTimer) {
+        window.clearTimeout(readerSingleClickTimer);
+        readerSingleClickTimer = null;
+        return;
+      }
+      readerSingleClickTimer = window.setTimeout(() => {
+        readerSingleClickTimer = null;
+        toggleReaderChrome();
+      }, 280);
+    });
+    const onReaderKeydown = event => {
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
+      const direction = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1
+        : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 0;
+      if (!direction) return;
+      event.preventDefault();
+      overlay._readerNavigate?.(direction);
+    };
+    document.addEventListener("keydown", onReaderKeydown);
+    $("[data-close-reader]", overlay).addEventListener("click", () => document.removeEventListener("keydown", onReaderKeydown), { once: true });
+    attachComments(item, overlay);
+    body.classList.toggle("reader-grayscale", readerGrayscale);
+    const seriesObserver = new MutationObserver(() => appendSeriesNavigation(item, controls, overlay));
+    overlay._seriesObserver = seriesObserver;
+    seriesObserver.observe(controls, { childList: true });
+    appendSeriesNavigation(item, controls, overlay);
+    $("[data-close-reader]", overlay).addEventListener("click", () => seriesObserver.disconnect(), { once: true });
+
+    const directionButton = $("#reading-direction-btn", overlay);
+    if (directionButton) {
+      directionButton.onclick = () => {
+        const newDirection = state.readingDirection === "western" ? "eastern" : "western";
+        setReadingDirection(newDirection);
+        directionButton.textContent = newDirection === "eastern" ? "↔ Oriental" : "↔ Ocidental";
+
+        // If in double-page mode, re-render to apply the change
+        if (state.readingMode === "double-page") {
+          overlay._reopenReader?.({ skipCover });
+        }
+      };
+    }
+
+
+    const startReader = async () => {
+      body.innerHTML = readerLoadingMarkup("Abrindo edição…");
+      const isImage = ["jpg", "jpeg", "png", "webp", "gif"].includes(format) || format === "telegram-pages";
+      let selectedIndex = 0;
+      if (!item.local && sourceCandidates.length && !isImage) {
+        selectedIndex = -1;
+        for (let index = 0; index < sourceCandidates.length; index += 1) {
+          if (await probeReaderSource(sourceCandidates[index])) { selectedIndex = index; break; }
+          if (index === 0) {
+            const fallback = sourceCandidates[1] || "nenhuma fonte reserva cadastrada";
+            await reportFileFailure(item, `A fonte principal falhou ao abrir. O leitor tentou uma fonte reserva: ${fallback}`, { silent: true, automatic: true, failedUrl: sourceCandidates[0], fallbackUrl: sourceCandidates[1] });
+          }
+        }
+        if (selectedIndex < 0) {
+          body.innerHTML = `<div class="empty" style="margin:auto;max-width:650px"><h3>Arquivo indisponível</h3><p>A fonte não entregou o arquivo ao leitor. Verifique o link da edição ou relate o problema aos moderadores.</p><button class="btn btn-primary" data-report-file>Relatar arquivo</button></div>`;
+          controls.innerHTML = `<span class="reader-page">${escapeHTML(format.toUpperCase())}</span>`;
+          $(`[data-report-file]`, body).onclick = () => reportFileFailure(item, "O arquivo não foi encontrado na fonte cadastrada.");
+          return;
+        }
+        resolvedUrl = sourceCandidates[selectedIndex] || resolvedUrl;
+      }
+      const selectedFormat = telegramPagesMode ? "telegram-pages" : (item.local ? format : String(item.format || format).toLowerCase());
+      if (["pdf", "cbz", "cbr"].includes(selectedFormat)) await ensureReaderDependency(selectedFormat);
+      const callback = (...args) => {
+        markReaderReady();
+        saveReadingProgress(...args);
+        const page = Number(args[1]) || 0;
+        const total = Number(args[2]) || 0;
+        void readerAdControllerPromise.then(controller => controller?.onPageChange(page, total)).catch(() => {});
+      };
+      if (selectedFormat === "telegram-pages") {
+        await renderTelegramPagesReader(item, body, controls, overlay, skipCover, resumePage, callback);
+      } else if (selectedFormat === "pdf" || resolvedUrl.toLowerCase().split("?")[0].endsWith(".pdf")) {
+        await renderPDFReader(item, resolvedUrl, body, controls, overlay, skipCover, resumePage, callback, selectedIndex === 0 ? prefetchedBuffer : null);
+      } else if (selectedFormat === "cbz" || resolvedUrl.toLowerCase().split("?")[0].endsWith(".cbz")) {
+        await renderCBZReader(item, resolvedUrl, body, controls, overlay, skipCover, resumePage, callback, selectedIndex === 0 ? prefetchedBuffer : null);
+      } else if (selectedFormat === "cbr" || resolvedUrl.toLowerCase().split("?")[0].endsWith(".cbr")) {
+        await renderCBRReader(item, resolvedUrl, body, controls, overlay, skipCover, resumePage, callback, selectedIndex === 0 ? prefetchedBuffer : null);
+      }
+    };
+    if (format === "pdf" || format === "cbz" || format === "cbr" || format === "telegram-pages") {
+      void startReader().then(markReaderReady).catch(() => {});
+    } else if (["jpg","jpeg","png","webp","gif"].includes(format)) {
+      body.innerHTML = readerLoadingMarkup("Abrindo imagem…");
+      const image = document.createElement("img");
+      image.className = "reader-image";
+      image.alt = "";
+      image.style.display = "none";
+      body.appendChild(image);
+      const readerImage = $(".reader-image", body);
+      if (readerImage) {
+        readerImage.loading = "eager";
+        readerImage.fetchPriority = "high";
+        readerImage.addEventListener("load", () => {
+          body.querySelector(".reader-loading")?.remove();
+          readerImage.style.removeProperty("display");
+          markReaderReady();
+        }, { once: true });
+        readerImage.addEventListener("error", async () => {
+          if (sourceCandidates.length && readerImage.dataset.backupTried !== "true") {
+            readerImage.dataset.backupTried = "true";
+            const fallback = sourceCandidates[1] || "nenhuma fonte reserva cadastrada";
+            await reportFileFailure(item, `A fonte principal da imagem falhou ao abrir. O leitor tentou uma fonte reserva: ${fallback}`, { silent: true, automatic: true, failedUrl: sourceCandidates[0], fallbackUrl: sourceCandidates[1] });
+            if (sourceCandidates[1]) { readerImage.src = sourceCandidates[1]; return; }
+          }
+          body.innerHTML = `<div class="empty" style="margin:auto;max-width:650px"><h3>Não foi possível abrir esta imagem.</h3><p>O arquivo não abriu. Relate o problema aos moderadores do site para que ele seja verificado.</p><button class="btn btn-primary" data-report-file>Relatar arquivo</button></div>`;
+          controls.innerHTML = `<span class="reader-page">Imagem</span>`;
+          $("[data-report-file]", body).onclick = () => reportFileFailure(item, "A imagem não abriu no leitor.");
+        }, { once: true });
+        readerImage.src = resolvedUrl;
+      }
+      controls.innerHTML = `<span class="reader-page">Imagem</span>`;
+      saveReadingProgress(item, 1, 1);
+      void readerAdControllerPromise.then(controller => controller?.onPageChange(1, 1)).catch(() => {});
+    } else if (item.seriesUrl && !item.fileUrl && !item.telegramUrl) {
+      body.innerHTML = `
+        <div class="empty" style="margin:auto;max-width:650px">
+          <h3>Catálogo externo</h3>
+          <p>Esta entrada possui metadados, mas ainda não possui o link individual do arquivo.</p>
+          <button class="btn btn-primary" data-open-series>Abrir página da série</button>
+        </div>`;
+      $(`[data-open-series]`, body).onclick = () => window.open(item.seriesUrl, "_blank", "noopener");
+      controls.innerHTML = `<span class="reader-page">LINK EXTERNO</span>`;
+    } else {
+      const title = "Formato não suportado no leitor";
+      const message = `O formato "${escapeHTML(format.toUpperCase())}" não pôde ser aberto pelo leitor. Relate o problema aos moderadores do site para que o arquivo seja verificado.`;
+      body.innerHTML = `
+        <div class="empty" style="margin:auto;max-width:650px">
+          <h3>${escapeHTML(title)}</h3>
+          <p>${escapeHTML(message)}</p><button class="btn btn-primary" data-report-file>Relatar arquivo</button>
+        </div>`;
+      controls.innerHTML = `<span class="reader-page">${escapeHTML(format.toUpperCase())}</span>`;
+      $("[data-report-file]", body).onclick = () => reportFileFailure(item, message);
+    }
+  }
+
+bootStandaloneReader();
