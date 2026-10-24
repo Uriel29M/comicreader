@@ -126,6 +126,7 @@
   (() => {
     "use strict";
     const params = new URLSearchParams(window.location.search);
+    window.__COMICREADER_REQUESTED_ID = params.get("ler") || "";
     const decodeJSON64 = value => {
       const raw = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
       const padded = raw + "=".repeat((4 - raw.length % 4) % 4);
@@ -240,6 +241,7 @@
 
       const nextURL = new URL(window.location.href);
       nextURL.searchParams.set("ler", itemId);
+      window.__COMICREADER_REQUESTED_ID = itemId;
       window.history.replaceState(window.history.state, "", nextURL.pathname + nextURL.search + nextURL.hash);
     }
 
@@ -248,6 +250,31 @@
       .then(async () => {
         await loadScript("js/app.js?v=2.2.10.565-telegram-preload-all");
         await loadScript("js/series-more.js?v=2-edition-about");
+
+        // The production SPA waits for authentication before applying routes.
+        // Ensure the exact same reader opens when this page is entered directly.
+        const requestedId = String(window.__COMICREADER_REQUESTED_ID || "");
+        if (requestedId) {
+          let attempts = 0;
+          const openRequestedReader = () => {
+            const runtime = window.BancaDigital;
+            const state = runtime?.state;
+            if (!runtime || !state?.authReady) {
+              if (attempts++ < 600) window.setTimeout(openRequestedReader, 50);
+              return;
+            }
+            if (document.querySelector(".reader-overlay")) return;
+            const item = state.db.library.find(entry => String(entry.id) === requestedId);
+            if (!item) {
+              console.error("[ComicReader] Edição não encontrada no catálogo carregado:", requestedId);
+              return;
+            }
+            state.section = "reader";
+            state.readerItemId = requestedId;
+            runtime.openReader(item, { routeSync: true });
+          };
+          openRequestedReader();
+        }
       })
       .catch(error => {
         console.error("[ComicReader]", error);
