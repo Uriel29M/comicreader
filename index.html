@@ -153,6 +153,7 @@
       document.body.appendChild(script);
     });
     async function prepare() {
+      window.CATALOG_VERSION = "comicreader-standalone-v1";
       const hasPayload = ["data", "manifest", "pages", "src"].some(key => params.has(key));
       if (!hasPayload && !params.has("ler")) {
         window.location.replace("https://uriel29m.github.io/bancadigital/");
@@ -189,12 +190,11 @@
       const explicitPageCount = Number(data.pageCount || data.pagesCount || 0);
       const pageCount = Math.min(10000, Math.max(0, Number.isSafeInteger(explicitPageCount) ? explicitPageCount : 0, urls.length, metadataPages.length));
       const sourceURL = String(data.sourceUrl || data.fileUrl || data.url || "").trim();
-      const originalId = String(data.telegramItemId || data.id || data.itemId || data.editionId || sourceURL || urls[0] || ("edition-" + hash(JSON.stringify(data))));
-      const itemId = originalId || ("comicreader-" + hash(JSON.stringify(data)));
+      const backendId = String(data.telegramItemId || data.itemId || data.editionId || data.id || "");
+      const itemId = backendId || ("comicreader-" + hash(JSON.stringify(data)));
       const hasPageSource = urls.length > 0 || pageCount > 0;
       if (!sourceURL && !hasPageSource) throw new Error("A edição não informa um arquivo (PDF/CBZ/CBR) nem páginas para ler.");
 
-      window.CATALOG_VERSION = "comicreader-standalone-v1";
       const item = {
         id: itemId,
         title: String(data.title || data.name || "Quadrinho"),
@@ -232,7 +232,7 @@
           const base = String(data.telegramBaseUrl || window.BANCA_SUPABASE_URL || "").replace(/\/+$/, "");
           if (!base) return "";
           const image = new URL(base + "/functions/v1/telegram-page-image");
-          image.searchParams.set("item_id", String(data.telegramItemId || data.itemId || data.editionId || data.id || itemId));
+          image.searchParams.set("item_id", String(backendId || itemId));
           image.searchParams.set("page", String(page));
           return image.toString();
         };
