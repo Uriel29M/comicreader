@@ -273,71 +273,197 @@ function toast(message) {
 }
 function readerActionToast(message) {
   let node = document.querySelector("[data-reader-action-toast]");
-  if (!node) { node = document.createElement("div"); node.dataset.readerActionToast = "1"; node.style.cssText = "position:fixed;z-index:100000;left:50%;bottom:24px;transform:translateX(-50%);max-width:90vw;padding:11px 16px;border:1px solid #444;border-radius:10px;background:#171719;color:#fff;font:14px system-ui;text-align:center"; document.body.appendChild(node); }
-  node.textContent = message; clearTimeout(node._timer); node._timer = setTimeout(() => node.remove(), 3000);
+  if (!node) {
+    node = document.createElement("div");
+    node.dataset.readerActionToast = "1";
+    node.style.cssText = "position:fixed;z-index:100000;left:50%;bottom:24px;transform:translateX(-50%);max-width:90vw;padding:11px 16px;border:1px solid #444;border-radius:10px;background:#171719;color:#fff;font:14px system-ui;text-align:center";
+    document.body.appendChild(node);
+  }
+  node.textContent = String(message || "");
+  clearTimeout(node._timer);
+  node._timer = setTimeout(() => node.remove(), 3500);
 }
-function readerActionStore(key, fallback) { try { return JSON.parse(localStorage.getItem(key) || "null") ?? fallback; } catch { return fallback; } }
-function toggleComicLike(itemId) {
-  const id = String(itemId || state.readerItemId || ""); if (!id) return;
-  const likes = readerActionStore("comicreader-likes-v1", {}), liked = !!likes[id];
-  if (liked) delete likes[id]; else likes[id] = true;
-  try { localStorage.setItem("comicreader-likes-v1", JSON.stringify(likes)); } catch {}
-  state.comicLikeIds[liked ? "delete" : "add"](id);
-  const button = document.querySelector("[data-like-item]");
-  if (button) { button.classList.toggle("is-liked", !liked); button.textContent = (liked ? "♡" : "♥") + " " + Math.max(0, Number(state.comicLikeCounts.get(id) || 0) + (liked ? -1 : 1)); button.setAttribute("aria-pressed", String(!liked)); }
-  readerActionToast(liked ? "Curtida removida neste navegador." : "Quadrinho curtido neste navegador.");
+async function toggleComicLike(itemId) {
+  const id=String(itemId||state.readerItemId||"");
+  if(!id)return;
+  try {
+    const client=await ensureSupabaseClient(), userId=state.session?.user?.id;
+    if(!userId){readerActionToast("Entre na sua conta da Banca Digital para curtir.");return;}
+    const {data:existing,error:readError}=await client.from("comic_likes")
+      .select("item_id").eq("item_id",id).eq("user_id",userId).maybeSingle();
+    if(readError)throw readError;
+    if(existing){
+      const {error}=await client.from("comic_likes").delete().eq("item_id",id).eq("user_id",userId);
+      if(error)throw error;
+      state.comicLikeIds.delete(id); readerActionToast("Curtida removida.");
+    } else {
+      const {error}=await client.from("comic_likes").insert({item_id:id,user_id:userId});
+      if(error)throw error;
+      state.comicLikeIds.add(id); readerActionToast("Quadrinho curtido.");
+    }
+    await refreshComicEngagement({id,local:false},document.querySelector(".reader-overlay"));
+  } catch(error) {
+    console.error("[ComicReader] like write:",error);
+    readerActionToast("Não foi possível salvar a curtida. Confirme sua conexão e tente novamente.");
+  }
 }
 async function shareComic(itemId) {
-  const url = new URL(BANCADIGITAL_BASE); url.searchParams.set("ler", String(itemId || state.readerItemId || ""));
-  const data = {title: $("#editionTitle")?.textContent || "Banca Digital", text: "Confira este quadrinho na Banca Digital.", url: url.href};
-  try { if (navigator.share) await navigator.share(data); else if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(url.href); readerActionToast("Link da edição copiado."); } else window.prompt("Copie o link da edição:", url.href); }
-  catch (error) { if (error?.name !== "AbortError") window.prompt("Copie o link da edição:", url.href); }
+  const id=String(itemId||state.readerItemId||"");
+  const url=new URL(BANCADIGITAL_BASE);
+  if(id)url.searchParams.set("ler",id);
+  const shareData={title:$("#editionTitle")?.textContent||"Banca Digital",text:"Confira este quadrinho na Banca Digital.",url:url.href};
+  try {
+    if(navigator.share) await navigator.share(shareData);
+    else if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(url.href);readerActionToast("Link da edição copiado.");}
+    else window.prompt("Copie o link da edição:",url.href);
+  } catch(error) {
+    if(error?.name!=="AbortError") { try{window.prompt("Copie o link da edição:",url.href);}catch{} }
+  }
 }
 function openCommentsPopup(item) {
-  const panel = $("#reader-overlay [data-reader-comments-panel]");
-  if (panel) { panel.hidden = false; panel.scrollIntoView({behavior:"smooth",block:"nearest"}); panel.querySelector("textarea")?.focus(); }
+  const panel=$("#reader-overlay [data-reader-comments-panel]");
+  if(panel){panel.hidden=false;panel.scrollIntoView({behavior:"smooth",block:"nearest"});panel.querySelector("textarea")?.focus();}
 }
 function seriesEditions(item) {
-  const all = Array.isArray(window.DEFAULT_LIBRARY) ? window.DEFAULT_LIBRARY : [];
-  if (!item?.seriesId) return [];
-  return all.filter(entry => String(entry?.seriesId || "") === String(item.seriesId))
-    .sort((a,b) => String(a.title || a.name || "").localeCompare(String(b.title || b.name || ""), "pt-BR"));
+  const all=Array.isArray(window.DEFAULT_LIBRARY)?window.DEFAULT_LIBRARY:[];
+  if(!item?.seriesId)return [];
+  return all.filter(entry=>String(entry?.seriesId||"")===String(item.seriesId))
+    .sort((a,b)=>String(a.title||a.name||"").localeCompare(String(b.title||b.name||""),"pt-BR"));
 }
-function openSeriesSelection(item, editions = []) {
-  const list = editions.length ? editions : seriesEditions(item);
-  if (!list.length) { if (item?.seriesUrl) window.open(item.seriesUrl, "_blank", "noopener,noreferrer"); else readerActionToast("Não encontrei outras edições desta série no catálogo carregado."); return; }
-  const dialog = document.createElement("dialog"); dialog.style.cssText = "width:min(92vw,560px);max-height:80vh;overflow:auto;border:1px solid #444;border-radius:14px;background:#111;color:#fff;padding:20px";
-  const heading = document.createElement("h2"); heading.textContent = "Edições da série"; dialog.appendChild(heading);
-  list.forEach(entry => { const b = document.createElement("button"); b.type = "button"; b.textContent = String(entry.title || entry.name || "Edição"); b.style.cssText = "display:block;width:100%;text-align:left;padding:12px;margin:6px 0;border:1px solid #39393f;border-radius:8px;background:#202024;color:inherit;cursor:pointer"; b.onclick = () => { dialog.close(); dialog.remove(); void openReader(entry, {routeSync:true}); }; dialog.appendChild(b); });
-  const close = document.createElement("button"); close.type = "button"; close.textContent = "Fechar"; close.onclick = () => { dialog.close(); dialog.remove(); }; dialog.appendChild(close);
-  document.body.appendChild(dialog); if (dialog.showModal) dialog.showModal(); else dialog.setAttribute("open", "");
+function openSeriesSelection(item, editions=[]) {
+  const list=editions.length?editions:seriesEditions(item);
+  if(!list.length) {
+    const url=item?.seriesUrl||item?.seriesPageUrl;
+    if(url){window.open(url,"_blank","noopener,noreferrer");return;}
+    readerActionToast("Não encontrei outras edições desta série no catálogo carregado.");return;
+  }
+  const dialog=document.createElement("dialog");
+  dialog.style.cssText="width:min(92vw,560px);max-height:80vh;overflow:auto;border:1px solid #444;border-radius:14px;background:#111;color:#fff;padding:20px";
+  const heading=document.createElement("h2");heading.textContent="Edições da série";dialog.appendChild(heading);
+  list.forEach(entry=>{
+    const button=document.createElement("button");button.type="button";
+    button.textContent=String(entry.title||entry.name||"Edição");
+    button.style.cssText="display:block;width:100%;text-align:left;padding:12px;margin:6px 0;border:1px solid #39393f;border-radius:8px;background:#202024;color:inherit;cursor:pointer";
+    button.addEventListener("click",()=>{dialog.close();dialog.remove();void openReader(entry,{routeSync:true});});
+    dialog.appendChild(button);
+  });
+  const close=document.createElement("button");close.type="button";close.textContent="Fechar";
+  close.addEventListener("click",()=>{dialog.close();dialog.remove();});dialog.appendChild(close);
+  dialog.addEventListener("click",event=>{if(event.target===dialog){dialog.close();dialog.remove();}});
+  document.body.appendChild(dialog);
+  if(dialog.showModal)dialog.showModal();else dialog.setAttribute("open","");
 }
-function openEditForm() { readerActionToast("Edite os metadados pelo catálogo da Banca Digital."); }
-function openEntityPage(value, kind) { const url = new URL(BANCADIGITAL_BASE); url.searchParams.set(kind === "character" ? "personagem" : "editora", String(value || "")); window.open(url.href, "_blank", "noopener,noreferrer"); }
-function attachComments(item, overlay) {
-  const panel = overlay.querySelector("[data-reader-comments-panel]"), toggle = overlay.querySelector("[data-reader-comments-toggle]");
-  if (!panel || !toggle) return;
-  const key = "comicreader-comments-v1:" + String(item?.id || "");
-  const render = () => {
+function openEditForm(){readerActionToast("Edite os metadados pelo catálogo da Banca Digital.");}
+function openEntityPage(value,kind){
+  const url=new URL(BANCADIGITAL_BASE);
+  url.searchParams.set(kind==="character"?"personagem":"editora",String(value||""));
+  window.open(url.href,"_blank","noopener,noreferrer");
+}
+function attachComments(item,overlay) {
+  const panel=overlay.querySelector("[data-reader-comments-panel]");
+  const toggle=overlay.querySelector("[data-reader-comments-toggle]");
+  if(!panel||!toggle)return;
+  let renderVersion=0;
+  const render=async()=>{
+    const version=++renderVersion;
     panel.replaceChildren();
-    const title = document.createElement("h3"); title.textContent = "Comentários"; panel.appendChild(title);
-    const form = document.createElement("form"); form.style.cssText = "display:flex;gap:8px;margin:10px 0";
-    const input = document.createElement("textarea"); input.rows = 2; input.maxLength = 1000; input.required = true; input.placeholder = "Escreva um comentário…"; input.setAttribute("aria-label", "Escreva um comentário"); input.style.cssText = "flex:1;min-width:0;padding:10px;border:1px solid #444;border-radius:8px;background:#171719;color:#fff";
-    const send = document.createElement("button"); send.type = "submit"; send.textContent = "Enviar"; form.append(input, send);
-    form.onsubmit = event => { event.preventDefault(); const text = input.value.trim(); if (!text) return; const comments = readerActionStore(key, []); comments.push({text, createdAt:new Date().toISOString()}); try { localStorage.setItem(key, JSON.stringify(comments)); render(); } catch { readerActionToast("Não foi possível salvar o comentário neste navegador."); } };
-    panel.appendChild(form);
-    const comments = readerActionStore(key, []);
-    if (!comments.length) { const empty = document.createElement("p"); empty.textContent = "Ainda não há comentários neste navegador."; panel.appendChild(empty); }
-    comments.slice().reverse().forEach(comment => { const p = document.createElement("p"); p.textContent = comment.text; p.style.cssText = "padding:10px 0;border-top:1px solid #333;white-space:pre-wrap;overflow-wrap:anywhere"; panel.appendChild(p); });
+    const heading=document.createElement("h3");heading.textContent="Comentários";
+    heading.style.cssText="margin:12px 0;font-size:17px";panel.appendChild(heading);
+    let client;
+    try{client=await ensureSupabaseClient();}
+    catch(error){const p=document.createElement("p");p.textContent="Não foi possível conectar aos comentários. Verifique a conexão e tente novamente.";panel.appendChild(p);console.warn(error);return;}
+    const userId=state.session?.user?.id||null;
+    const {data:comments,error}=await client.from("comments")
+      .select("id,user_id,item_id,body,created_at,parent_id,profiles(username,avatar_url)")
+      .eq("item_id",String(item.id))
+      .order("created_at",{ascending:true})
+      .limit(200);
+    if(version!==renderVersion)return;
+    if(error){const p=document.createElement("p");p.textContent="Não foi possível carregar os comentários agora.";panel.appendChild(p);console.error("[ComicReader] comments select:",error);return;}
+    if(!userId){
+      const note=document.createElement("p");note.textContent="Você pode ler os comentários. Para publicar, entre na sua conta da Banca Digital.";
+      note.style.cssText="color:#aaa;font-size:13px";panel.appendChild(note);
+      const login=document.createElement("a");login.href=BANCADIGITAL_BASE;login.target="_blank";login.rel="noopener noreferrer";
+      login.textContent="Abrir a Banca Digital para entrar";login.style.cssText="display:inline-block;margin:0 0 12px;color:#9dc4ff";panel.appendChild(login);
+    }else{
+      const form=document.createElement("form");form.style.cssText="display:flex;gap:8px;margin:10px 0;align-items:stretch";
+      const input=document.createElement("textarea");input.rows=2;input.maxLength=1000;input.required=true;input.placeholder="Escreva um comentário…";
+      input.setAttribute("aria-label","Escreva um comentário");input.style.cssText="flex:1;min-width:0;padding:10px;border:1px solid #444;border-radius:8px;background:#171719;color:#fff";
+      const send=document.createElement("button");send.type="submit";send.textContent="Enviar";send.style.cssText="padding:9px 13px;border:0;border-radius:8px;background:#e5e5e5;color:#111;cursor:pointer";
+      form.append(input,send);
+      form.addEventListener("submit",async event=>{
+        event.preventDefault();const body=input.value.trim();if(!body)return;
+        send.disabled=true;
+        try{
+          const currentClient=await ensureSupabaseClient(),currentUser=state.session?.user?.id;
+          if(!currentUser)throw new Error("Entre na sua conta da Banca Digital e tente novamente.");
+          const {error:insertError}=await currentClient.from("comments").insert({user_id:currentUser,item_id:String(item.id),body});
+          if(insertError)throw insertError;
+          readerActionToast("Comentário publicado.");await render();
+        }catch(error){
+          console.error("[ComicReader] comment write:",error);
+          readerActionToast(error?.code==="42501"?"Sua conta não pode publicar este comentário no momento.":"Não foi possível publicar. Confirme seu login e tente novamente.");
+          send.disabled=false;
+        }
+      });
+      panel.appendChild(form);
+    }
+    if(!comments?.length){const empty=document.createElement("p");empty.textContent="Ainda não há comentários nesta edição.";empty.style.cssText="color:#999;font-size:13px";panel.appendChild(empty);}
+    (comments||[]).forEach(comment=>{
+      const card=document.createElement("article");card.style.cssText="padding:10px 0;border-top:1px solid #333;overflow-wrap:anywhere";
+      if(comment.parent_id){card.style.marginLeft="18px";card.style.paddingLeft="10px";card.style.borderLeft="2px solid #444";}
+      const author=document.createElement("strong");author.textContent=comment.profiles?.username||"Leitor";author.style.cssText="font-size:13px;color:#d6d6d6";
+      const date=document.createElement("small");const dt=new Date(comment.created_at);date.textContent=Number.isNaN(dt.getTime())?"":" · "+dt.toLocaleString("pt-BR");date.style.cssText="font-size:11px;color:#888";
+      const body=document.createElement("p");body.textContent=comment.body;body.style.cssText="margin:6px 0 0;white-space:pre-wrap";
+      card.append(author,date,body);
+      if(userId&&String(comment.user_id)===String(userId)){
+        const del=document.createElement("button");del.type="button";del.textContent="Excluir";del.style.cssText="margin-top:7px;font-size:12px;color:#f99;background:transparent;border:0;cursor:pointer";
+        del.addEventListener("click",async()=>{
+          if(!confirm("Excluir seu comentário?"))return;del.disabled=true;
+          try{const {error:deleteError}=await (await ensureSupabaseClient()).from("comments").delete().eq("id",comment.id);if(deleteError)throw deleteError;readerActionToast("Comentário excluído.");await render();}
+          catch(error){console.error("[ComicReader] comment delete:",error);readerActionToast("Não foi possível excluir o comentário.");del.disabled=false;}
+        });
+        card.appendChild(del);
+      }
+      panel.appendChild(card);
+    });
   };
-  toggle.addEventListener("click", event => { event.preventDefault(); const opening = panel.hidden; panel.hidden = !opening; toggle.setAttribute("aria-expanded", String(opening)); toggle.textContent = opening ? "− Ocultar comentários" : "＋ Comentários"; if (opening) render(); });
+  toggle.addEventListener("click",event=>{
+    event.preventDefault();const opening=panel.hidden;panel.hidden=!opening;
+    toggle.setAttribute("aria-expanded",String(opening));
+    toggle.textContent=opening?"− Ocultar comentários":"＋ Comentários";
+    if(opening)void render();
+  });
 }
-function appendSeriesNavigation(item) {
-  const prev = $("#reader-series-prev"), next = $("#reader-series-next"); if (!prev || !next || !item?.seriesId) return;
-  const editions = seriesEditions(item), index = editions.findIndex(entry => String(entry.id) === String(item.id)); prev.replaceChildren(); next.replaceChildren();
-  const add = (parent, label, entry) => { const b = document.createElement("button"); b.type = "button"; b.className = "small-btn"; b.textContent = label; b.onclick = () => void openReader(entry, {routeSync:true}); parent.appendChild(b); };
-  if (index > 0) add(prev, "‹ Edição anterior", editions[index - 1]);
-  if (index >= 0 && index < editions.length - 1) add(next, "Próxima edição ›", editions[index + 1]);
+async function refreshComicEngagement(item,overlay) {
+  if(!item||item.local||!overlay)return;
+  const button=overlay.querySelector("[data-like-item]");if(!button)return;
+  try{
+    const client=await ensureSupabaseClient();
+    const {count,error}=await client.from("comic_likes").select("user_id",{count:"exact",head:true}).eq("item_id",String(item.id));
+    if(error)throw error;
+    const userId=state.session?.user?.id;
+    let liked=false;
+    if(userId){
+      const {data,error:likeError}=await client.from("comic_likes").select("item_id").eq("item_id",String(item.id)).eq("user_id",userId).maybeSingle();
+      if(likeError)throw likeError;liked=Boolean(data);
+    }
+    state.comicLikeCounts.set(String(item.id),Number(count)||0);
+    state.comicLikeIds[liked?"add":"delete"](String(item.id));
+    button.classList.toggle("is-liked",liked);
+    button.textContent=(liked?"♥":"♡")+" "+(Number(count)||0);
+    button.setAttribute("aria-pressed",String(liked));
+    button.title=userId?"Curtir ou remover curtida":"Entre na Banca Digital para curtir";
+  }catch(error){console.warn("[ComicReader] likes load:",error);}
+}
+function appendSeriesNavigation(item){
+  const prev=$("#reader-series-prev"),next=$("#reader-series-next");
+  if(!prev||!next||!item?.seriesId)return;
+  const editions=seriesEditions(item),index=editions.findIndex(entry=>String(entry.id)===String(item.id));
+  prev.replaceChildren();next.replaceChildren();
+  const add=(parent,label,entry)=>{const b=document.createElement("button");b.type="button";b.className="small-btn";b.textContent=label;b.onclick=()=>void openReader(entry,{routeSync:true});parent.appendChild(b);};
+  if(index>0)add(prev,"‹ Edição anterior",editions[index-1]);
+  if(index>=0&&index<editions.length-1)add(next,"Próxima edição ›",editions[index+1]);
 }
 function resumeCoverLoading() {}
 function setReadingMode(mode) {
@@ -592,18 +718,43 @@ function loadBancaScript(pathOrUrl) {
   catalogScriptLoads.set(src, promise);
   return promise;
 }
+let readerProfileLoadedFor = null;
+async function syncReaderAuthState(client) {
+  const {data, error} = await client.auth.getSession();
+  if (error) throw error;
+  state.session = data?.session || null;
+  const userId = String(state.session?.user?.id || "");
+  if (!userId) {
+    state.profile = null;
+    readerProfileLoadedFor = null;
+    return;
+  }
+  if (readerProfileLoadedFor !== userId) {
+    const {data: profile, error: profileError} = await client
+      .from("profiles")
+      .select("id,username,avatar_url,plan")
+      .eq("id", userId)
+      .maybeSingle();
+    state.profile = profileError ? null : (profile || null);
+    readerProfileLoadedFor = userId;
+  }
+}
 async function ensureSupabaseClient() {
-  if (sb) return sb;
-  if (!window.supabase?.createClient) {
-    await loadBancaScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2");
+  if (!sb) {
+    if (!window.supabase?.createClient) {
+      await loadBancaScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2");
+    }
+    if (!window.BANCA_SUPABASE_URL || !window.BANCA_SUPABASE_KEY) {
+      await loadBancaScript("js/supabase.js");
+    }
+    if (!window.supabase?.createClient || !window.BANCA_SUPABASE_URL || !window.BANCA_SUPABASE_KEY) {
+      throw new Error("Não foi possível conectar ao catálogo da Banca Digital.");
+    }
+    sb = window.supabase.createClient(window.BANCA_SUPABASE_URL, window.BANCA_SUPABASE_KEY, {
+      auth: {persistSession: true, autoRefreshToken: true, detectSessionInUrl: true}
+    });
   }
-  if (!window.BANCA_SUPABASE_URL || !window.BANCA_SUPABASE_KEY) {
-    await loadBancaScript("js/supabase.js");
-  }
-  if (!window.supabase?.createClient || !window.BANCA_SUPABASE_URL || !window.BANCA_SUPABASE_KEY) {
-    throw new Error("Não foi possível conectar ao catálogo da Banca Digital.");
-  }
-  sb = window.supabase.createClient(window.BANCA_SUPABASE_URL, window.BANCA_SUPABASE_KEY);
+  await syncReaderAuthState(sb);
   return sb;
 }
 function parseBancaEditionId(value) {
@@ -736,6 +887,8 @@ async function openBancaEditionLink(value, options = {}) {
 async function bootStandaloneReader() {
   const fallback = $("#reader-overlay");
   try {
+    try { await ensureSupabaseClient(); }
+    catch (authError) { console.warn("[ComicReader] Recursos de comunidade indisponíveis:", authError); }
     const linkedEditionId = params.get("ler") || params.get("edicao") || params.get("id");
     if (linkedEditionId) {
       const officialLink = new URL(BANCADIGITAL_BASE);
@@ -1151,7 +1304,8 @@ function openReader(item, options = {}) {
       readerExitToHome = true;
       closeReaderButton.click();
     };
-    $("[data-like-item]", overlay)?.addEventListener("click", event => { event.stopPropagation(); toggleComicLike(item.id); });
+    $("[data-like-item]", overlay)?.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); void toggleComicLike(item.id); });
+    void refreshComicEngagement(item, overlay);
     $("[data-share-item]", overlay)?.addEventListener("click", event => { event.stopPropagation(); shareComic(item.id); });
     $("[data-comment-item]", overlay)?.addEventListener("click", event => { event.stopPropagation(); openCommentsPopup(item); });
     $("[data-view-series]", overlay)?.addEventListener("click", event => {
