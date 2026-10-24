@@ -247,13 +247,80 @@ function shouldSkipCover() { return localStorage.getItem("readerSkipCover") === 
 function progressFor(item) {
   try { return JSON.parse(localStorage.getItem("reader-progress:" + String(item?.id || "")) || "null"); } catch { return null; }
 }
-function saveReadingProgress(item, page, total) {
+function saveReadingProgress(item, page, total, completedOverride) {
   try {
+    const normalizedPage = Math.max(1, Number(page) || 1);
+    const normalizedTotal = Math.max(1, Number(total) || 1);
+    const completed = typeof completedOverride === "boolean"
+      ? completedOverride
+      : normalizedPage >= normalizedTotal;
     localStorage.setItem("reader-progress:" + String(item?.id || ""), JSON.stringify({
-      page: Number(page) || 1, total_pages: Number(total) || 1,
-      completed: Number(page) >= Number(total) && Number(total) > 0
+      page: normalizedPage, total_pages: normalizedTotal, completed
     }));
   } catch {}
+}
+
+async function loadReaderReadStatus(item, button) {
+  if (!button || !item?.id || item.local) return null;
+  const client = await ensureSupabaseClient();
+  const userId = String(state.session?.user?.id || "");
+  if (!userId) {
+    button.textContent = "Marcar como lida";
+    return null;
+  }
+  const {data, error} = await client.from("reading_progress")
+    .select("page,total_pages,completed,completion_source,updated_at")
+    .eq("user_id", userId)
+    .eq("item_id", String(item.id))
+    .maybeSingle();
+  if (error) throw error;
+  if (state.session?.user?.id !== userId) return null;
+  if (data) {
+    saveReadingProgress(item, data.page, data.total_pages, Boolean(data.completed));
+    button.textContent = data.completed ? "Desmarcar como lida" : "Marcar como lida";
+  } else {
+    button.textContent = "Marcar como lida";
+  }
+  return data;
+}
+
+async function toggleReadingCompleted(item, totalPages = progressFor(item)?.total_pages || 1) {
+  if (!item?.id || item.local) throw new Error("Esta edição não pode ser marcada como lida.");
+  const client = await ensureSupabaseClient();
+  const userId = String(state.session?.user?.id || "");
+  if (!userId) {
+    readerAskLogin();
+    return null;
+  }
+  const itemId = String(item.id);
+  const {data: current, error: readError} = await client.from("reading_progress")
+    .select("page,total_pages,completed")
+    .eq("user_id", userId)
+    .eq("item_id", itemId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (state.session?.user?.id !== userId) throw new Error("Sua sessão mudou. Entre novamente e tente outra vez.");
+
+  const local = progressFor(item);
+  const total = Math.max(1, Number(current?.total_pages) || Number(totalPages) || Number(local?.total_pages) || 1);
+  const page = Math.max(1, Math.min(total, Number(current?.page) || Number(local?.page) || 1));
+  // The persisted reading_progress row is authoritative. Local page position is
+  // used only for page/total fallback, not to override the completion status.
+  const completed = !Boolean(current?.completed);
+  const row = {
+    user_id: userId,
+    item_id: itemId,
+    page,
+    total_pages: total,
+    completed,
+    completion_source: completed ? "manual" : null,
+    updated_at: new Date().toISOString()
+  };
+  const {error: writeError} = await client.from("reading_progress")
+    .upsert(row, {onConflict: "user_id,item_id"});
+  if (writeError) throw writeError;
+  saveReadingProgress(item, page, total, completed);
+  return completed;
 }
 function saveSkipCoverPreference(value) {
   try {localStorage.setItem("readerSkipCover", value ? "true" : "false");} catch {}
@@ -1650,22 +1717,49 @@ function openReader(item, options = {}) {
     });
     body.classList.toggle("reader-page-swipe", ["single-page", "double-page"].includes(state.readingMode));
     const toggleReadButton = $("[data-toggle-read]", overlay);
-    if (toggleReadButton) toggleReadButton.disabled = true;
-    const markReaderReady = () => { if (toggleReadButton) toggleReadButton.disabled = false; };
-    let readerReadyObserver = null;
-    if (toggleReadButton && "MutationObserver" in window) {
-      readerReadyObserver = new MutationObserver(() => {
-        if (body.querySelector("canvas, img, .image-continuous-scroll-container, .pdf-continuous-scroll-container, .reader-double-page")) {
-          markReaderReady();
-          readerReadyObserver.disconnect();
-          readerReadyObserver = null;
-        }
-      });
-      readerReadyObserver.observe(body, { childList: true, subtree: true });
+    let readerContentReady = false;
+    let readStatusReady = !toggleReadButton;
+    const updateReadButtonAvailability = () => {
+      if (!toggleReadButton?.isConnected) return;
+      toggleReadButton.disabled = !readerContentReady || !readStatusReady || toggleReadButton.dataset.savingRead === "true";
+    };
+    if (toggleReadButton) {
+      toggleReadButton.disabled = true;
+      void loadReaderReadStatus(item, toggleReadButton)
+        .catch(error => {
+          console.warn("[ComicReader] Não foi possível carregar o status de leitura:", error);
+          // Saving remains available once the edition is ready; clicking will
+          // retry the status query and report a real database error if needed.
+        })
+        .finally(() => {
+          readStatusReady = true;
+          updateReadButtonAvailability();
+        });
     }
-    toggleReadButton?.addEventListener("click", event => {
-      const completed = toggleReadingCompleted(item, progressFor(item)?.total_pages || 1);
-      event.currentTarget.textContent = completed ? "Desmarcar como lida" : "Marcar como lida";
+    const markReaderReady = () => {
+      readerContentReady = true;
+      updateReadButtonAvailability();
+    };
+    toggleReadButton?.addEventListener("click", async event => {
+      const button = event.currentTarget;
+      if (!readerContentReady || !readStatusReady || button.dataset.savingRead === "true") return;
+      button.dataset.savingRead = "true";
+      updateReadButtonAvailability();
+      try {
+        const completed = await toggleReadingCompleted(item, progressFor(item)?.total_pages || 1);
+        if (completed !== null && button.isConnected) {
+          button.textContent = completed ? "Desmarcar como lida" : "Marcar como lida";
+        }
+      } catch (error) {
+        console.error("[ComicReader] Não foi possível salvar o status de leitura:", error);
+        readerActionToast("Não foi possível salvar o status de leitura. Tente novamente.");
+        try { await loadReaderReadStatus(item, button); } catch (refreshError) {
+          console.warn("[ComicReader] Não foi possível atualizar o status de leitura:", refreshError);
+        }
+      } finally {
+        delete button.dataset.savingRead;
+        updateReadButtonAvailability();
+      }
     });
     overlay._readerNavigate = direction => {
       const button = direction > 0 ? $("[data-next]", controls) : $("[data-prev]", controls);
