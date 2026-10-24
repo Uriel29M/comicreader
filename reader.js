@@ -24,7 +24,28 @@ function next(){go(Math.min(pageCount,currentPage+(spread?2:1)))}
 function previous(){go(Math.max(1,currentPage-(spread?2:1)))}
 async function loadPdf(url){const pdfjs=await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";const r=await fetch(url,{signal:activeAbort.signal,mode:"cors",credentials:"omit"});if(!r.ok)throw Error("Falha ao buscar PDF (HTTP "+r.status+").");const pdf=await pdfjs.getDocument({data:await r.arrayBuffer()}).promise;edition.renderPage=async n=>{const p=await pdf.getPage(n),v=p.getViewport({scale:1.7}),c=document.createElement("canvas");c.width=v.width;c.height=v.height;await p.render({canvasContext:c.getContext("2d",{alpha:false}),viewport:v}).promise;return new Promise(resolve=>c.toBlob(resolve,"image/jpeg",.9))};pageCount=pdf.numPages;return "PDF"}
 async function loadCbz(url){const mod=await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm");const Zip=mod.default||mod;const r=await fetch(url,{signal:activeAbort.signal,mode:"cors",credentials:"omit"});if(!r.ok)throw Error("Falha ao buscar CBZ (HTTP "+r.status+").");const zip=await Zip.loadAsync(await r.arrayBuffer());const files=Object.values(zip.files).filter(f=>!f.dir&&/\.(jpe?g|png|webp|gif|avif)$/i.test(f.name)&&!/(^|\/)(__MACOSX|\.)(\/|$)/i.test(f.name)).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:"base"}));if(!files.length)throw Error("O CBZ não contém páginas de imagem.");edition.renderPage=n=>files[n-1].async("blob");pageCount=files.length;return "CBZ"}
-async function loadCbr(){throw Error("O módulo CBR/libarchive ainda precisa ser conectado nesta migração.")}
+async function loadCbr(url){
+ const response=await fetch(url,{signal:activeAbort.signal,mode:"cors",credentials:"omit"});
+ if(!response.ok)throw Error("Falha ao buscar CBR (HTTP "+response.status+").");
+ const buffer=await response.arrayBuffer(),bytes=new Uint8Array(buffer);
+ if(bytes.length<8)throw Error("Arquivo CBR vazio ou inválido.");
+ const zip=bytes[0]===0x50&&bytes[1]===0x4b;
+ if(zip){const mod=await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm"),Zip=mod.default||mod,z=await Zip.loadAsync(buffer),files=Object.values(z.files).filter(f=>!f.dir&&/\.(jpe?g|png|webp|gif|avif)$/i.test(f.name)).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:"base"}));if(!files.length)throw Error("O arquivo não contém páginas de imagem.");edition.renderPage=n=>files[n-1].async("blob");pageCount=files.length;return "CBR/ZIP"}
+ const rar4=bytes[0]===0x52&&bytes[1]===0x61&&bytes[2]===0x72&&bytes[3]===0x21&&bytes[4]===0x1a&&bytes[5]===0x07&&bytes[6]===0x00;
+ const rar5=bytes[0]===0x52&&bytes[1]===0x61&&bytes[2]===0x72&&bytes[3]===0x21&&bytes[4]===0x1a&&bytes[5]===0x07&&bytes[6]===0x01&&bytes[7]===0x00;
+ if(!rar4&&!rar5)throw Error("O arquivo recebido não tem assinatura RAR4/RAR5 válida.");
+ const base="https://uriel29m.github.io/bancadigital/libarchive/";
+ const [lib,rar]=await Promise.all([import(base+"libarchive.js"),import(base+"rar-reader.mjs")]);
+ const Archive=rar.withSolidRarSupport(lib.Archive);
+ Archive.init({workerUrl:base+"worker-bundle.js"});
+ const archive=await Archive.open(new File([buffer],"comic.cbr",{type:"application/vnd.rar"}));
+ const tree=await archive.getFilesObject();
+ function collect(obj,path){let out=[];if(!obj||typeof obj!=="object")return out;for(const [key,value] of Object.entries(obj)){const name=path?path+"/"+key:key;if(value&&typeof value==="object"&&typeof value.extract==="function"){const fileName=value.name||key;if(/\.(jpg|jpeg|png|webp|gif|avif)$/i.test(fileName))out.push({name:fileName,file:value});continue}if(value&&typeof value==="object")out=out.concat(collect(value,name))}return out}
+ const files=collect(tree).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:"base"}));
+ if(!files.length)throw Error("O CBR não contém páginas de imagem.");
+ edition.renderPage=async n=>{const v=await files[n-1].file.extract();return v instanceof Blob?v:new Blob([v],{type:/\.png$/i.test(files[n-1].name)?"image/png":/\.webp$/i.test(files[n-1].name)?"image/webp":"image/jpeg"})};
+ pageCount=files.length;return "CBR"
+}
 async function boot(){const gen=reset();status("Carregando edição…");try{await parseEdition();if(gen!==generation)return;titleNode.textContent=edition.title||"Quadrinho";const fmt=formatOf(edition.format||(edition.sourceUrl||"").split("?")[0].split(".").pop());pageUrls=imageList(edition.pages);let label=fmt.toUpperCase()||"IMAGENS";if(pageUrls.length)pageCount=pageUrls.length;else if(edition.sourceUrl&&fmt==="pdf")label=await loadPdf(edition.sourceUrl);else if(edition.sourceUrl&&fmt==="cbz")label=await loadCbz(edition.sourceUrl);else if(edition.sourceUrl&&fmt==="cbr")label=await loadCbr(edition.sourceUrl);else throw Error("Passe ?src=URL&format=pdf|cbz, ?pages=JSON_BASE64URL ou ?data=JSON_BASE64URL.");if(gen!==generation)return;metaNode.textContent=label+" · "+pageCount+" página"+(pageCount===1?"":"s");status("");render();prefetch(currentPage)}catch(e){if(gen!==generation||e.name==="AbortError")return;status("");showError(e.message||"Não foi possível abrir esta edição.")}}
 prevBtn.addEventListener("click",previous);nextBtn.addEventListener("click",next);goBtn.addEventListener("click",()=>go(pageInput.value));pageInput.addEventListener("keydown",e=>{if(e.key==="Enter")go(pageInput.value)});
 scrollBtn.addEventListener("click",()=>{continuous=!continuous;pagesNode.replaceChildren();render();prefetch(currentPage)});spreadBtn.addEventListener("click",()=>{spread=!spread;render();prefetch(currentPage)});fitBtn.addEventListener("click",()=>{fitWidth=!fitWidth;fitBtn.textContent=fitWidth?"Ajustar":"Tamanho real";render()});
