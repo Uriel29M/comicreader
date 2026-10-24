@@ -283,190 +283,417 @@ function readerActionToast(message) {
   clearTimeout(node._timer);
   node._timer = setTimeout(() => node.remove(), 3500);
 }
+function readerLoginUrl() {
+  const url = new URL(BANCADIGITAL_BASE);
+  url.searchParams.set("pagina", "login");
+  return url.href;
+}
+function readerAskLogin() {
+  readerActionToast("Entre na sua conta da Banca Digital para continuar.");
+  window.open(readerLoginUrl(), "_blank", "noopener,noreferrer");
+}
+function updateComicLikeButtons(itemId) {
+  const id = String(itemId);
+  const liked = state.comicLikeIds.has(id);
+  const count = Number(state.comicLikeCounts.get(id) || 0);
+  $$("[data-like-item]").filter(button => String(button.dataset.likeItem) === id).forEach(button => {
+    button.classList.toggle("is-liked", liked);
+    button.textContent = (liked ? "♥" : "♡") + " " + count;
+    button.setAttribute("aria-pressed", String(liked));
+  });
+}
 async function toggleComicLike(itemId) {
-  const id=String(itemId||state.readerItemId||"");
-  if(!id)return;
+  const id = String(itemId || state.readerItemId || "");
+  if (!id) return;
   try {
-    const client=await ensureSupabaseClient(), userId=state.session?.user?.id;
-    if(!userId){readerActionToast("Entre na sua conta da Banca Digital para curtir.");return;}
-    const {data:existing,error:readError}=await client.from("comic_likes")
-      .select("item_id").eq("item_id",id).eq("user_id",userId).maybeSingle();
-    if(readError)throw readError;
-    if(existing){
-      const {error}=await client.from("comic_likes").delete().eq("item_id",id).eq("user_id",userId);
-      if(error)throw error;
-      state.comicLikeIds.delete(id); readerActionToast("Curtida removida.");
+    const client = await ensureSupabaseClient();
+    const userId = state.session?.user?.id;
+    if (!userId) return readerAskLogin();
+    const {data: existing, error: selectError} = await client.from("comic_likes")
+      .select("item_id").eq("user_id", userId).eq("item_id", id).maybeSingle();
+    if (selectError) throw selectError;
+    if (existing) {
+      const {error} = await client.from("comic_likes").delete().eq("user_id", userId).eq("item_id", id);
+      if (error) throw error;
+      state.comicLikeIds.delete(id);
     } else {
-      const {error}=await client.from("comic_likes").insert({item_id:id,user_id:userId});
-      if(error)throw error;
-      state.comicLikeIds.add(id); readerActionToast("Quadrinho curtido.");
+      const {error} = await client.from("comic_likes").insert({user_id: userId, item_id: id});
+      if (error) throw error;
+      state.comicLikeIds.add(id);
     }
-    await refreshComicEngagement({id,local:false},document.querySelector(".reader-overlay"));
-  } catch(error) {
-    console.error("[ComicReader] like write:",error);
-    readerActionToast("Não foi possível salvar a curtida. Confirme sua conexão e tente novamente.");
+    const {count, error: countError} = await client.from("comic_likes")
+      .select("user_id", {count:"exact",head:true}).eq("item_id", id);
+    if (countError) throw countError;
+    state.comicLikeCounts.set(id, Number(count) || 0);
+    updateComicLikeButtons(id);
+  } catch (error) {
+    console.error("[ComicReader] Não foi possível atualizar a curtida:", error);
+    readerActionToast("Não foi possível atualizar a curtida.");
   }
+}
+function readerCanonicalShareUrl(itemId) {
+  const url = new URL(BANCADIGITAL_BASE);
+  if (itemId) url.searchParams.set("ler", String(itemId));
+  return url.href;
 }
 async function shareComic(itemId) {
-  const id=String(itemId||state.readerItemId||"");
-  const url=new URL(BANCADIGITAL_BASE);
-  if(id)url.searchParams.set("ler",id);
-  const shareData={title:$("#editionTitle")?.textContent||"Banca Digital",text:"Confira este quadrinho na Banca Digital.",url:url.href};
+  const item = (window.DEFAULT_LIBRARY || []).find(entry => String(entry.id) === String(itemId))
+    || {id:itemId,title:$("#editionTitle")?.textContent || "Quadrinho"};
+  const link = readerCanonicalShareUrl(item.id);
   try {
-    if(navigator.share) await navigator.share(shareData);
-    else if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(url.href);readerActionToast("Link da edição copiado.");}
-    else window.prompt("Copie o link da edição:",url.href);
-  } catch(error) {
-    if(error?.name!=="AbortError") { try{window.prompt("Copie o link da edição:",url.href);}catch{} }
+    if (navigator.share) {
+      await navigator.share({title:item.title || "Quadrinho",text:"Leia " + (item.title || "este quadrinho") + " na Banca Digital",url:link});
+    } else if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(link);
+      readerActionToast("Link do quadrinho copiado.");
+    } else {
+      window.prompt("Copie o link do quadrinho:",link);
+    }
+  } catch (error) {
+    if (error?.name !== "AbortError") { try { window.prompt("Copie o link do quadrinho:",link); } catch {} }
   }
 }
-function openCommentsPopup(item) {
-  const panel=$("#reader-overlay [data-reader-comments-panel]");
-  if(panel){panel.hidden=false;panel.scrollIntoView({behavior:"smooth",block:"nearest"});panel.querySelector("textarea")?.focus();}
+function readerProfileHref(username) {
+  const url = new URL(BANCADIGITAL_BASE);
+  url.searchParams.set("perfil",String(username || ""));
+  return url.href;
+}
+function readerCommentDate(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat("pt-BR",{dateStyle:"short",timeStyle:"short"}).format(date);
+}
+async function loadReaderCommentThread(item) {
+  const client = await ensureSupabaseClient();
+  if (state.session?.offline || navigator.onLine === false) return {comments:[],likedIds:new Set(),counts:new Map()};
+  let result = await client.from("comments").select("id,parent_id,user_id,body,created_at")
+    .eq("item_id",String(item.id)).order("created_at",{ascending:false}).limit(200);
+  if (result.error && /parent_id|schema cache|column/i.test(result.error.message || "")) {
+    const legacy = await client.from("comments").select("id,user_id,body,created_at")
+      .eq("item_id",String(item.id)).order("created_at",{ascending:false}).limit(200);
+    result = {...legacy,data:(legacy.data || []).map(comment=>({...comment,parent_id:null}))};
+  }
+  if (result.error) return {error:result.error,comments:[],likedIds:new Set(),counts:new Map()};
+  const comments = result.data || [];
+  const userIds = [...new Set(comments.map(comment=>comment.user_id).filter(Boolean))];
+  let profiles = [];
+  if (userIds.length) {
+    const profileResult = await client.from("profiles_public").select("id,username,avatar_url,title,plan").in("id",userIds);
+    if (!profileResult.error) profiles = profileResult.data || [];
+  }
+  const profileMap = new Map(profiles.map(profile=>[String(profile.id),profile]));
+  comments.forEach(comment=>{comment.profiles=profileMap.get(String(comment.user_id)) || {};});
+  const likesResult = comments.length ? await client.from("comment_likes").select("comment_id,user_id").in("comment_id",comments.map(comment=>comment.id)) : {data:[]};
+  const likes = likesResult.error ? [] : (likesResult.data || []);
+  const likedIds = new Set(likes.filter(row=>String(row.user_id)===String(state.session?.user?.id || "")).map(row=>Number(row.comment_id)));
+  const counts = likes.reduce((map,row)=>map.set(Number(row.comment_id),(map.get(Number(row.comment_id)) || 0)+1),new Map());
+  return {comments,likedIds,counts};
+}
+function readerCommentMarkup(comment, childrenByParent, likedIds, likeCounts) {
+  const profile = comment.profiles || {};
+  const username = String(profile.username || "usuário");
+  const avatar = String(profile.avatar_url || (BANCADIGITAL_BASE + "assets/semfoto.jpg"));
+  const id = Number(comment.id);
+  const children = childrenByParent.get(id) || [];
+  const replies = children.map(child=>readerCommentMarkup(child,childrenByParent,likedIds,likeCounts)).join("");
+  const canDelete = String(state.session?.user?.id || "") === String(comment.user_id || "")
+    || ["moderator","banca","admin"].includes(state.profile?.plan);
+  return '<article class="comment" data-comment-id="' + id + '">' +
+    '<div class="comment-author-row"><img class="comment-avatar" src="' + escapeHTML(avatar) + '" alt="Foto de ' + escapeHTML(username) + '" loading="lazy" onerror="this.onerror=null;this.src=\'' + BANCADIGITAL_BASE + 'assets/semfoto.jpg\'">' +
+    '<div class="comment-author-info"><a class="comment-author" href="' + escapeHTML(readerProfileHref(username)) + '" target="_blank" rel="noopener noreferrer">@' + escapeHTML(username) + '</a>' +
+    (profile.title ? '<span class="comment-title">' + escapeHTML(profile.title) + '</span>' : '') + '</div></div>' +
+    '<p>' + escapeHTML(comment.body || "") + '</p><div class="comment-actions">' +
+    '<button type="button" class="comment-action ' + (likedIds.has(id) ? "is-liked" : "") + '" data-comment-like="' + id + '">♥ ' + (likeCounts.get(id) || 0) + '</button>' +
+    '<button type="button" class="comment-action" data-comment-reply="' + id + '">Responder</button>' +
+    (children.length ? '<button type="button" class="comment-action" data-comment-toggle="' + id + '">Ver ' + children.length + ' resposta' + (children.length===1?"":"s") + '</button>' : '') +
+    (canDelete ? '<button type="button" class="comment-action comment-delete-action" data-comment-delete="' + id + '">Excluir</button>' : '') +
+    '<time class="comment-date" datetime="' + escapeHTML(comment.created_at || "") + '">' + escapeHTML(readerCommentDate(comment.created_at)) + '</time></div>' +
+    '<div class="comment-replies" data-comment-replies="' + id + '" hidden>' + replies + '</div></article>';
+}
+function linkReaderCommentMentions(root) {
+  const pattern = /@([A-Za-z0-9_]{3,24})/g;
+  root.querySelectorAll("p").forEach(paragraph=>{
+    const source=paragraph.textContent || "";
+    let match,cursor=0,found=false;
+    pattern.lastIndex=0;
+    const fragment=document.createDocumentFragment();
+    while((match=pattern.exec(source))){
+      found=true;
+      fragment.appendChild(document.createTextNode(source.slice(cursor,match.index)));
+      const link=document.createElement("a");
+      link.className="comment-mention";link.href=readerProfileHref(match[1]);link.target="_blank";link.rel="noopener noreferrer";link.textContent=match[0];
+      fragment.appendChild(link);cursor=match.index+match[0].length;
+    }
+    if(!found)return;
+    fragment.appendChild(document.createTextNode(source.slice(cursor)));
+    paragraph.replaceChildren(fragment);
+  });
+}
+function renderReaderCommentThread(list,thread) {
+  if(thread.error){list.innerHTML='<span class="section-subtitle">Não foi possível carregar os comentários.</span>';console.error("[ComicReader] Falha ao carregar comentários:",thread.error);return;}
+  const byParent=new Map();
+  thread.comments.forEach(comment=>{
+    const parent=comment.parent_id==null?null:Number(comment.parent_id);
+    if(!byParent.has(parent))byParent.set(parent,[]);
+    byParent.get(parent).push(comment);
+  });
+  list.innerHTML=(byParent.get(null)||[]).map(comment=>readerCommentMarkup(comment,byParent,thread.likedIds,thread.counts)).join("")
+    || '<span class="section-subtitle">Nenhum comentário ainda.</span>';
+  linkReaderCommentMentions(list);
+}
+function readerCommentWriteError(error) {
+  const message=String(error?.message || "");
+  return /row-level security|permission denied|can_post_content|silenced|blocked/i.test(message)
+    ? "Sua conta não pode comentar neste momento."
+    : "Não foi possível publicar o comentário.";
+}
+function bindReaderCommentThread(root,item,list,refresh) {
+  if(root.dataset.readerCommentThreadBound==="true")return;
+  root.dataset.readerCommentThreadBound="true";
+  root.addEventListener("click",async event=>{
+    const likeButton=event.target.closest("[data-comment-like]");
+    if(likeButton){
+      event.preventDefault();
+      try{
+        const client=await ensureSupabaseClient(),userId=state.session?.user?.id;
+        if(!userId)return readerAskLogin();
+        const commentId=Number(likeButton.dataset.commentLike),liked=likeButton.classList.contains("is-liked");
+        const result=liked
+          ? await client.from("comment_likes").delete().eq("user_id",userId).eq("comment_id",commentId)
+          : await client.from("comment_likes").insert({user_id:userId,comment_id:commentId});
+        if(result.error)throw result.error;
+        await refresh();
+      }catch(error){console.error("[ComicReader] Curtida de comentário:",error);readerActionToast("Não foi possível atualizar a curtida.");}
+      return;
+    }
+    const deleteButton=event.target.closest("[data-comment-delete]");
+    if(deleteButton){
+      event.preventDefault();
+      if(!window.confirm("Excluir este comentário e suas respostas?"))return;
+      deleteButton.disabled=true;
+      try{
+        const result=await (await ensureSupabaseClient()).from("comments").delete().eq("id",Number(deleteButton.dataset.commentDelete));
+        if(result.error)throw result.error;
+        readerActionToast("Comentário excluído.");await refresh();
+      }catch(error){console.error("[ComicReader] Exclusão de comentário:",error);readerActionToast("Não foi possível excluir o comentário.");deleteButton.disabled=false;}
+      return;
+    }
+    const toggle=event.target.closest("[data-comment-toggle]");
+    if(toggle){
+      const replies=root.querySelector('[data-comment-replies="' + toggle.dataset.commentToggle + '"]');
+      if(replies){replies.hidden=!replies.hidden;toggle.textContent=replies.hidden?"Ver respostas":"Ocultar respostas";}
+      return;
+    }
+    const reply=event.target.closest("[data-comment-reply]");
+    if(reply){
+      const comment=root.querySelector('[data-comment-id="' + reply.dataset.commentReply + '"]');
+      if(!comment||comment.querySelector("[data-reply-form]"))return;
+      if(!state.session?.user?.id){readerAskLogin();return;}
+      const form=document.createElement("form");
+      form.className="comment-form comment-reply-form";form.dataset.replyForm="true";
+      form.innerHTML='<textarea name="body" maxlength="1000" required placeholder="Escreva uma resposta..."></textarea><button class="small-btn" type="submit">Responder</button>';
+      comment.appendChild(form);form.querySelector("textarea")?.focus();
+    }
+  });
+  root.addEventListener("submit",async event=>{
+    const form=event.target.closest("[data-reply-form]");
+    if(!form)return;
+    event.preventDefault();
+    const userId=state.session?.user?.id;
+    if(!userId)return readerAskLogin();
+    const body=String(new FormData(form).get("body")||"").trim();
+    if(!body)return;
+    const parentId=Number(form.closest("[data-comment-id]")?.dataset.commentId);
+    const button=form.querySelector("button");if(button)button.disabled=true;
+    try{
+      const result=await (await ensureSupabaseClient()).from("comments").insert({user_id:userId,item_id:String(item.id),parent_id:parentId,body});
+      if(result.error)throw result.error;
+      form.remove();await refresh();
+    }catch(error){console.error("[ComicReader] Resposta:",error);readerActionToast(readerCommentWriteError(error));if(button)button.disabled=false;}
+  });
+}
+async function submitReaderCommentForm(form,item,refresh) {
+  const userId=state.session?.user?.id;
+  if(!userId)return readerAskLogin();
+  const body=String(new FormData(form).get("body")||"").trim();
+  if(!body)return;
+  const button=form.querySelector("button");if(button)button.disabled=true;
+  try{
+    const result=await (await ensureSupabaseClient()).from("comments").insert({user_id:userId,item_id:String(item.id),body});
+    if(result.error)throw result.error;
+    form.reset();readerActionToast("Comentário publicado.");await refresh();
+  }catch(error){console.error("[ComicReader] Publicação:",error);readerActionToast(readerCommentWriteError(error));if(button)button.disabled=false;}
+}
+async function openCommentsPopup(item) {
+  if(!item?.id)return;
+  const overlay=document.createElement("div");
+  overlay.className="modal-backdrop comments-modal-backdrop";overlay.style.zIndex="100001";
+  overlay.innerHTML='<div class="modal comments-modal"><div class="section-head"><div><h2>Comentários</h2><div class="section-subtitle">' + escapeHTML(itemDisplayTitle(item)) + '</div></div><button class="small-btn" data-close type="button">Fechar</button></div><div class="comments-list"><span class="section-subtitle">Carregando...</span></div>' +
+    (state.session?.user?.id?'<form class="comment-form"><textarea name="body" maxlength="1000" required placeholder="Escreva um comentário..."></textarea><button class="small-btn" type="submit">Comentar</button></form>':'<p class="section-subtitle">Entre para comentar.</p><a class="comment-mention" target="_blank" rel="noopener noreferrer" href="' + readerLoginUrl() + '">Abrir a Banca Digital para entrar</a>') + '</div>';
+  (document.querySelector("#modal-root")||document.body).appendChild(overlay);
+  const close=()=>overlay.remove();
+  overlay.addEventListener("click",event=>{if(event.target===overlay)close();});
+  overlay.querySelector("[data-close]")?.addEventListener("click",close);
+  const list=overlay.querySelector(".comments-list");
+  const refresh=async()=>renderReaderCommentThread(list,await loadReaderCommentThread(item));
+  bindReaderCommentThread(overlay,item,list,refresh);
+  const form=overlay.querySelector(".comment-form");
+  form?.addEventListener("submit",event=>{event.preventDefault();void submitReaderCommentForm(form,item,refresh);});
+  await refresh();
+}
+function seriesIssueSortValue(item) {
+  if(Number.isFinite(item?.seriesSortOrder))return -1000000000+item.seriesSortOrder;
+  const explicitOrder=Number(item?.sortOrder);
+  if(Number.isFinite(explicitOrder))return explicitOrder;
+  const issueNumber=Number(String(item?.issue||"").match(/\d+(?:\.\d+)?/)?.[0]);
+  return Number.isFinite(issueNumber)?issueNumber:Number.MAX_SAFE_INTEGER;
+}
+function seriesIssueDisplay(item) {
+  const issue=String(item?.issue??"").trim();
+  if(item?.seriesId==="series-action-comics-2011-novos-52")return ({"2012":"Anual 01","2013":"Anual 02","2014":"Anual 03"})[issue]||issue;
+  return issue;
 }
 function seriesEditions(item) {
-  const all=Array.isArray(window.DEFAULT_LIBRARY)?window.DEFAULT_LIBRARY:[];
   if(!item?.seriesId)return [];
-  return all.filter(entry=>String(entry?.seriesId||"")===String(item.seriesId))
-    .sort((a,b)=>String(a.title||a.name||"").localeCompare(String(b.title||b.name||""),"pt-BR"));
+  const all=Array.isArray(window.DEFAULT_LIBRARY)?window.DEFAULT_LIBRARY:[];
+  return [...new Map(all.filter(entry=>String(entry?.seriesId||"")===String(item.seriesId)).map(entry=>[String(entry.id),entry])).values()]
+    .sort((a,b)=>seriesIssueSortValue(a)-seriesIssueSortValue(b));
 }
-function openSeriesSelection(item, editions=[]) {
-  const list=editions.length?editions:seriesEditions(item);
-  if(!list.length) {
-    const url=item?.seriesUrl||item?.seriesPageUrl;
-    if(url){window.open(url,"_blank","noopener,noreferrer");return;}
-    readerActionToast("Não encontrei outras edições desta série no catálogo carregado.");return;
+async function loadReaderCatalogSources() {
+  for(const path of CATALOG_SCRIPTS){
+    try{await loadBancaScript(path);}
+    catch(error){console.warn("[ComicReader] Fonte de catálogo indisponível:",path,error);}
   }
-  const dialog=document.createElement("dialog");
-  dialog.style.cssText="width:min(92vw,560px);max-height:80vh;overflow:auto;border:1px solid #444;border-radius:14px;background:#111;color:#fff;padding:20px";
-  const heading=document.createElement("h2");heading.textContent="Edições da série";dialog.appendChild(heading);
-  list.forEach(entry=>{
-    const button=document.createElement("button");button.type="button";
-    button.textContent=String(entry.title||entry.name||"Edição");
-    button.style.cssText="display:block;width:100%;text-align:left;padding:12px;margin:6px 0;border:1px solid #39393f;border-radius:8px;background:#202024;color:inherit;cursor:pointer";
-    button.addEventListener("click",()=>{dialog.close();dialog.remove();void openReader(entry,{routeSync:true});});
-    dialog.appendChild(button);
-  });
-  const close=document.createElement("button");close.type="button";close.textContent="Fechar";
-  close.addEventListener("click",()=>{dialog.close();dialog.remove();});dialog.appendChild(close);
-  dialog.addEventListener("click",event=>{if(event.target===dialog){dialog.close();dialog.remove();}});
-  document.body.appendChild(dialog);
-  if(dialog.showModal)dialog.showModal();else dialog.setAttribute("open","");
 }
-function openEditForm(){readerActionToast("Edite os metadados pelo catálogo da Banca Digital.");}
-function openEntityPage(value,kind){
+function readerSeriesCardMarkup(item) {
+  const cover=String(item?.coverUrl||item?.cover||item?.featuredCoverUrl||"");
+  const issue=seriesIssueDisplay(item);
+  const issueLabel=issue?(/^\d+(?:\.\d+)?$/.test(issue)?"#"+issue:issue):"";
+  const title=String(item?.title||item?.name||item?.seriesTitle||"Quadrinho");
+  const meta=[item.year,item.publisher,item.imprint].filter(Boolean).map(value=>'<span>'+escapeHTML(value)+'</span>').join("");
+  return '<div class="card-wrap"><article class="card reader-series-card" data-reader-series-edition="'+escapeHTML(item.id)+'">' +
+    '<div class="cover" '+(cover?'style="background-image:url(\\''+escapeHTML(cover)+'\\')"':'')+'><div class="cover-labels">'+(issueLabel?'<span class="cover-number">'+escapeHTML(issueLabel)+'</span>':'')+'</div></div>' +
+    '<div class="card-body"><div class="card-title">'+escapeHTML(title)+'</div><div class="card-meta">'+meta+'</div><div class="card-stats"><span>'+escapeHTML(item.year||"")+'</span></div></div></article></div>';
+}
+async function openSeriesSelection(series, editions=[], returnToCoverVariants=false, returnToFileReports=false, returnToReader=null, allowHiddenPreview=false, forcePage=false) {
+  await loadReaderCatalogSources();
+  const refreshed=seriesEditions(series);
+  const list=refreshed.length?refreshed:(Array.isArray(editions)?editions:[]);
+  if(!list.length){
+    const url=series?.seriesUrl||series?.seriesPageUrl;
+    if(url)window.open(url,"_blank","noopener,noreferrer");
+    else readerActionToast("Não encontrei outras edições desta série no catálogo.");
+    return;
+  }
+  const volumes=new Map();
+  list.forEach(item=>{const label=item.volumeTitle||item.volume||"Edições";if(!volumes.has(label))volumes.set(label,[]);volumes.get(label).push(item);});
+  const entries=[...volumes.entries()];
+  const tabs=entries.length>1?'<div class="series-volume-tabs">'+entries.map((entry,index)=>'<button class="small-btn '+(index===0?"is-active":"")+'" type="button" data-series-volume-tab="'+index+'">'+escapeHTML(entry[0])+'</button>').join("")+'</div>':"";
+  const panels=entries.map((entry,index)=>'<div class="series-volume-panel" data-series-volume-panel="'+index+'" '+(index?"hidden":"")+'><div class="section-subtitle series-volume-heading">'+escapeHTML(entry[0])+'</div><div class="results-grid">'+entry[1].map(readerSeriesCardMarkup).join("")+'</div></div>').join("");
+  const title=String(series?.seriesTitle||series?.title||series?.name||"Série");
+  const overlay=document.createElement("div");overlay.className="modal-backdrop";overlay.style.zIndex="100001";
+  overlay.innerHTML='<div class="modal series-modal"><div class="section-head"><div><div class="eyebrow">Série</div><h2>'+escapeHTML(title)+'</h2><div class="section-subtitle">'+list.length+' edições · selecione uma edição para abrir</div></div><div class="modal-actions">'+
+    '<button class="small-btn" data-back-cover-variants '+(returnToCoverVariants?"":"hidden")+' type="button">Voltar</button>'+
+    '<button class="small-btn" data-back-file-reports '+(returnToFileReports?"":"hidden")+' type="button">Voltar</button>'+
+    '<button class="small-btn" data-back-reader '+(returnToReader?"":"hidden")+' type="button">Voltar à história</button>'+
+    '<button class="small-btn" data-close type="button">Fechar</button></div></div>'+tabs+panels+'</div>';
+  (document.querySelector("#modal-root")||document.body).appendChild(overlay);
+  const close=()=>overlay.remove();
+  overlay.addEventListener("click",event=>{if(event.target===overlay)close();});
+  overlay.querySelector("[data-close]")?.addEventListener("click",close);
+  overlay.querySelector("[data-back-reader]")?.addEventListener("click",()=>{close();if(returnToReader)void openReader(returnToReader,{routeSync:true});});
+  overlay.querySelectorAll("[data-series-volume-tab]").forEach(tab=>tab.addEventListener("click",()=>{
+    const selected=tab.dataset.seriesVolumeTab;
+    overlay.querySelectorAll("[data-series-volume-tab]").forEach(button=>button.classList.toggle("is-active",button===tab));
+    overlay.querySelectorAll("[data-series-volume-panel]").forEach(panel=>{panel.hidden=panel.dataset.seriesVolumePanel!==selected;});
+  }));
+  overlay.querySelectorAll("[data-reader-series-edition]").forEach(card=>{
+    card.tabIndex=0;card.setAttribute("role","button");
+    const open=()=>{const target=list.find(entry=>String(entry.id)===String(card.dataset.readerSeriesEdition));if(!target)return;close();void openReader(target,{routeSync:true});};
+    card.addEventListener("click",open);
+    card.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();open();}});
+  });
+}
+function openEditForm() { readerActionToast("Edite os metadados pelo catálogo da Banca Digital."); }
+function openEntityPage(kind,value) {
   const url=new URL(BANCADIGITAL_BASE);
-  url.searchParams.set(kind==="character"?"personagem":"editora",String(value||""));
+  if(kind==="character")url.searchParams.set("personagem",String(value||""));
+  else if(kind==="publisher")url.searchParams.set("editora",String(value||""));
   window.open(url.href,"_blank","noopener,noreferrer");
 }
 function attachComments(item,overlay) {
-  const panel=overlay.querySelector("[data-reader-comments-panel]");
-  const toggle=overlay.querySelector("[data-reader-comments-toggle]");
+  if(!sb||state.session?.offline||navigator.onLine===false||item.local)return;
+  const panel=$("[data-reader-comments-panel]",overlay);
+  const toggle=$("[data-reader-comments-toggle]",overlay);
   if(!panel||!toggle)return;
-  let renderVersion=0;
-  const render=async()=>{
-    const version=++renderVersion;
-    panel.replaceChildren();
-    const heading=document.createElement("h3");heading.textContent="Comentários";
-    heading.style.cssText="margin:12px 0;font-size:17px";panel.appendChild(heading);
-    let client;
-    try{client=await ensureSupabaseClient();}
-    catch(error){const p=document.createElement("p");p.textContent="Não foi possível conectar aos comentários. Verifique a conexão e tente novamente.";panel.appendChild(p);console.warn(error);return;}
-    const userId=state.session?.user?.id||null;
-    const {data:comments,error}=await client.from("comments")
-      .select("id,user_id,item_id,body,created_at,parent_id,profiles(username,avatar_url)")
-      .eq("item_id",String(item.id))
-      .order("created_at",{ascending:true})
-      .limit(200);
-    if(version!==renderVersion)return;
-    if(error){const p=document.createElement("p");p.textContent="Não foi possível carregar os comentários agora.";panel.appendChild(p);console.error("[ComicReader] comments select:",error);return;}
-    if(!userId){
-      const note=document.createElement("p");note.textContent="Você pode ler os comentários. Para publicar, entre na sua conta da Banca Digital.";
-      note.style.cssText="color:#aaa;font-size:13px";panel.appendChild(note);
-      const login=document.createElement("a");login.href=BANCADIGITAL_BASE;login.target="_blank";login.rel="noopener noreferrer";
-      login.textContent="Abrir a Banca Digital para entrar";login.style.cssText="display:inline-block;margin:0 12px 12px 0;color:#9dc4ff";panel.appendChild(login);
-      const refresh=document.createElement("button");refresh.type="button";refresh.textContent="Já entrei — atualizar";
-      refresh.style.cssText="display:inline-block;margin:0 0 12px;padding:5px 9px;border:1px solid #555;border-radius:7px;background:#222;color:#eee;cursor:pointer";
-      refresh.addEventListener("click",()=>void render());panel.appendChild(refresh);
-    }else{
-      const form=document.createElement("form");form.style.cssText="display:flex;gap:8px;margin:10px 0;align-items:stretch";
-      const input=document.createElement("textarea");input.rows=2;input.maxLength=1000;input.required=true;input.placeholder="Escreva um comentário…";
-      input.setAttribute("aria-label","Escreva um comentário");input.style.cssText="flex:1;min-width:0;padding:10px;border:1px solid #444;border-radius:8px;background:#171719;color:#fff";
-      const send=document.createElement("button");send.type="submit";send.textContent="Enviar";send.style.cssText="padding:9px 13px;border:0;border-radius:8px;background:#e5e5e5;color:#111;cursor:pointer";
-      form.append(input,send);
-      form.addEventListener("submit",async event=>{
-        event.preventDefault();const body=input.value.trim();if(!body)return;
-        send.disabled=true;
-        try{
-          const currentClient=await ensureSupabaseClient(),currentUser=state.session?.user?.id;
-          if(!currentUser)throw new Error("Entre na sua conta da Banca Digital e tente novamente.");
-          const {error:insertError}=await currentClient.from("comments").insert({user_id:currentUser,item_id:String(item.id),body});
-          if(insertError)throw insertError;
-          readerActionToast("Comentário publicado.");await render();
-        }catch(error){
-          console.error("[ComicReader] comment write:",error);
-          readerActionToast(error?.code==="42501"?"Sua conta não pode publicar este comentário no momento.":"Não foi possível publicar. Confirme seu login e tente novamente.");
-          send.disabled=false;
-        }
-      });
-      panel.appendChild(form);
-    }
-    if(!comments?.length){const empty=document.createElement("p");empty.textContent="Ainda não há comentários nesta edição.";empty.style.cssText="color:#999;font-size:13px";panel.appendChild(empty);}
-    (comments||[]).forEach(comment=>{
-      const card=document.createElement("article");card.style.cssText="padding:10px 0;border-top:1px solid #333;overflow-wrap:anywhere";
-      if(comment.parent_id){card.style.marginLeft="18px";card.style.paddingLeft="10px";card.style.borderLeft="2px solid #444";}
-      const author=document.createElement("strong");author.textContent=comment.profiles?.username||"Leitor";author.style.cssText="font-size:13px;color:#d6d6d6";
-      const date=document.createElement("small");const dt=new Date(comment.created_at);date.textContent=Number.isNaN(dt.getTime())?"":" · "+dt.toLocaleString("pt-BR");date.style.cssText="font-size:11px;color:#888";
-      const body=document.createElement("p");body.textContent=comment.body;body.style.cssText="margin:6px 0 0;white-space:pre-wrap";
-      card.append(author,date,body);
-      if(userId&&String(comment.user_id)===String(userId)){
-        const del=document.createElement("button");del.type="button";del.textContent="Excluir";del.style.cssText="margin-top:7px;font-size:12px;color:#f99;background:transparent;border:0;cursor:pointer";
-        del.addEventListener("click",async()=>{
-          if(!confirm("Excluir seu comentário?"))return;del.disabled=true;
-          try{const {error:deleteError}=await (await ensureSupabaseClient()).from("comments").delete().eq("id",comment.id);if(deleteError)throw deleteError;readerActionToast("Comentário excluído.");await render();}
-          catch(error){console.error("[ComicReader] comment delete:",error);readerActionToast("Não foi possível excluir o comentário.");del.disabled=false;}
-        });
-        card.appendChild(del);
-      }
-      panel.appendChild(card);
-    });
+  panel.className="reader-comments";
+  panel.innerHTML='<div class="comments-content"><div class="comments-list"><span class="section-subtitle">Carregando...</span></div>'+
+    (state.session?.user?.id?'<form class="comment-form"><textarea name="body" maxlength="1000" required placeholder="Escreva um comentário..."></textarea><button class="small-btn" type="submit">Comentar</button></form>':
+    '<p class="section-subtitle">Entre para comentar.</p><a class="comment-mention" target="_blank" rel="noopener noreferrer" href="'+readerLoginUrl()+'">Abrir a Banca Digital para entrar</a>')+'</div>';
+  toggle.onclick=event=>{
+    event.preventDefault();event.stopPropagation();
+    const opening=panel.hidden;
+    panel.hidden=!opening;
+    toggle.textContent=opening?"− Comentários":"＋ Comentários";
+    toggle.setAttribute("aria-expanded",opening?"true":"false");
   };
-  toggle.addEventListener("click",event=>{
-    event.preventDefault();const opening=panel.hidden;panel.hidden=!opening;
-    toggle.setAttribute("aria-expanded",String(opening));
-    toggle.textContent=opening?"− Ocultar comentários":"＋ Comentários";
-    if(opening)void render();
-  });
+  const list=$(".comments-list",panel);
+  const refresh=async()=>renderReaderCommentThread(list,await loadReaderCommentThread(item));
+  bindReaderCommentThread(panel,item,list,refresh);
+  const form=$(".comment-form",panel);
+  form?.addEventListener("submit",event=>{event.preventDefault();void submitReaderCommentForm(form,item,refresh);});
+  void refresh();
 }
 async function refreshComicEngagement(item,overlay) {
   if(!item||item.local||!overlay)return;
   const button=overlay.querySelector("[data-like-item]");if(!button)return;
   try{
-    const client=await ensureSupabaseClient();
-    const {count,error}=await client.from("comic_likes").select("user_id",{count:"exact",head:true}).eq("item_id",String(item.id));
+    const client=await ensureSupabaseClient(),id=String(item.id);
+    const {count,error}=await client.from("comic_likes").select("user_id",{count:"exact",head:true}).eq("item_id",id);
     if(error)throw error;
     const userId=state.session?.user?.id;
     let liked=false;
     if(userId){
-      const {data,error:likeError}=await client.from("comic_likes").select("item_id").eq("item_id",String(item.id)).eq("user_id",userId).maybeSingle();
+      const {data,error:likeError}=await client.from("comic_likes").select("item_id").eq("item_id",id).eq("user_id",userId).maybeSingle();
       if(likeError)throw likeError;liked=Boolean(data);
     }
-    state.comicLikeCounts.set(String(item.id),Number(count)||0);
-    state.comicLikeIds[liked?"add":"delete"](String(item.id));
-    button.classList.toggle("is-liked",liked);
-    button.textContent=(liked?"♥":"♡")+" "+(Number(count)||0);
-    button.setAttribute("aria-pressed",String(liked));
-    button.title=userId?"Curtir ou remover curtida":"Entre na Banca Digital para curtir";
-  }catch(error){console.warn("[ComicReader] likes load:",error);}
+    state.comicLikeCounts.set(id,Number(count)||0);
+    if(liked)state.comicLikeIds.add(id);else state.comicLikeIds.delete(id);
+    updateComicLikeButtons(id);
+  }catch(error){console.warn("[ComicReader] Falha ao carregar curtidas:",error);}
 }
-function appendSeriesNavigation(item){
-  const prev=$("#reader-series-prev"),next=$("#reader-series-next");
-  if(!prev||!next||!item?.seriesId)return;
-  const editions=seriesEditions(item),index=editions.findIndex(entry=>String(entry.id)===String(item.id));
-  prev.replaceChildren();next.replaceChildren();
-  const add=(parent,label,entry)=>{const b=document.createElement("button");b.type="button";b.className="small-btn";b.textContent=label;b.onclick=()=>void openReader(entry,{routeSync:true});parent.appendChild(b);};
-  if(index>0)add(prev,"‹ Edição anterior",editions[index-1]);
-  if(index>=0&&index<editions.length-1)add(next,"Próxima edição ›",editions[index+1]);
+function appendSeriesNavigation(item,controls,overlay) {
+  const previousHost=$("#reader-series-prev",overlay),nextHost=$("#reader-series-next",overlay);
+  if(!previousHost&&!nextHost)return;
+  const render=()=>{
+    if(!overlay?.isConnected)return;
+    const editions=seriesEditions(item),current=editions.findIndex(entry=>String(entry.id)===String(item.id));
+    previousHost?.replaceChildren();nextHost?.replaceChildren();
+    if(current<0)return;
+    const label=entry=>{const issue=seriesIssueDisplay(entry);return issue?(/^\d+(?:\.\d+)?$/.test(issue)?"#"+issue:issue):"Edição";};
+    const add=(host,html)=>{
+      if(!host)return;
+      const nav=document.createElement("span");nav.dataset.seriesNav="true";nav.className="series-reader-nav";nav.innerHTML=html;host.appendChild(nav);
+      nav.querySelectorAll("[data-series-target]").forEach(button=>button.addEventListener("click",()=>{
+        const target=editions[Number(button.dataset.seriesTarget)];
+        if(target&&String(target.id)!==String(item.id))void openReader(target,{routeSync:true});
+      }));
+    };
+    if(current>0){
+      const first=editions[0],prev=editions[current-1];
+      add(previousHost,(current>1?'<button type="button" title="Primeira edição" data-series-target="0">« '+escapeHTML(label(first))+'</button>':"")+
+        '<button type="button" title="Edição anterior" data-series-target="'+(current-1)+'">‹ '+escapeHTML(label(prev))+'</button>');
+    }
+    if(current<editions.length-1){
+      const next=editions[current+1],last=editions[editions.length-1];
+      add(nextHost,'<button type="button" title="Próxima edição" data-series-target="'+(current+1)+'">'+escapeHTML(label(next))+' ›</button>'+
+        (current<editions.length-2?'<button type="button" title="Última edição" data-series-target="'+(editions.length-1)+'">'+escapeHTML(label(last))+' »</button>':""));
+    }
+  };
+  render();
+  if(!overlay._completeSeriesCatalogPromise){
+    overlay._completeSeriesCatalogPromise=loadReaderCatalogSources().catch(()=>{});
+    void overlay._completeSeriesCatalogPromise.then(render);
+  }else void overlay._completeSeriesCatalogPromise.then(render);
 }
 function resumeCoverLoading() {}
 function setReadingMode(mode) {
