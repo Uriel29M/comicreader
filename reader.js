@@ -249,12 +249,11 @@ function itemDisplayTitle(item) {
     : {...item, issue: item?.issueNumber ?? item?.editionNumber ?? item?.number ?? ""};
   const issue = String(seriesIssueDisplay(issueSource) || "").trim();
   if (!issue) return title;
-  const label = /^\d+(?:\.\d+)?$/.test(issue) ? "#" + issue : issue;
-  const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, "\\function itemDisplayTitle(item) { return String(item?.title || item?.name || "Quadrinho"); }");
-  const alreadyInTitle = /^\d+(?:\.\d+)?$/.test(issue)
-    ? new RegExp("(?:^|[^\\p{L}\\p{N}])#?\\s*" + escapeRegExp(issue) + "(?:$|[^\\p{L}\\p{N}])", "iu").test(title)
-    : title.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase()
-      .includes(issue.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase());
+  const numericIssue = /^\d+(?:\.\d+)?$/.test(issue);
+  const label = numericIssue ? "#" + issue : issue;
+  const alreadyInTitle = numericIssue
+    ? new RegExp("(?:^|[^0-9])#?\\s*" + issue.replace(".", "\\\\.") + "(?:$|[^0-9])", "i").test(title)
+    : title.toLocaleLowerCase().includes(issue.toLocaleLowerCase());
   return alreadyInTitle ? title : title + " " + label;
 }
 function shouldSkipCover() { return localStorage.getItem("readerSkipCover") === "true"; }
