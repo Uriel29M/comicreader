@@ -2,7 +2,7 @@ const BANCADIGITAL_BASE = "https://uriel29m.github.io/bancadigital/";
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 const params = new URLSearchParams(location.search);
-const sb = null;
+let sb = null;
 const READER_END_PAGE_URL = BANCADIGITAL_BASE + "assets/somosumabiblioteca.jpg";
 let state = {
   readingMode: localStorage.getItem("readingMode") || "single-page",
@@ -214,9 +214,20 @@ async function renderCBZReader(...args) { return (await loadReaderFormatRenderer
 async function renderCBRReader(...args) { return (await loadReaderFormatRenderers()).renderCBRReader(...args); }
 
 function canViewCatalogItem() { return true; }
-function isTelegramPostUrl() { return false; }
-function isExternalArchiveLink() { return false; }
-function downloadSource(item) { return String(item?.sourceUrl || item?.fileUrl || item?.url || ""); }
+function isTelegramPostUrl(url) { return /^https?:\/\/(?:www\.)?t(?:elegram)?\.me\//i.test(String(url || "")); }
+function isExternalArchiveLink(url) {
+  return /^(?:https?:\/\/)(?:(?:www\.)?mediafire\.com\/\?|mega\.co\.nz\/#!)/i.test(String(url || ""));
+}
+function telegramProxyUrl(item) {
+  if (!item?.id || !isTelegramPostUrl(item?.telegramUrl) || !window.BANCA_SUPABASE_URL) return "";
+  const proxy = new URL(String(window.BANCA_SUPABASE_URL).replace(/\/+$/, "") + "/functions/v1/telegram-proxy");
+  proxy.searchParams.set("item_id", String(item.id));
+  return proxy.toString();
+}
+function downloadSource(item) {
+  if (item?.local) return item.fileUrl || "";
+  return telegramProxyUrl(item) || item?.fileUrl || (!isTelegramPostUrl(item?.telegramUrl) ? item?.telegramUrl : "") || "";
+}
 function readerSourceCandidates(item) {
   const primary = downloadSource(item);
   const backups = Array.isArray(item?.backupUrls) ? item.backupUrls : (item?.backupUrl ? [item.backupUrl] : []);
@@ -313,6 +324,9 @@ async function parseEditionPayload() {
   return edition;
 }
 function normalizeItem(edition) {
+  const originalTelegramPages = Array.isArray(edition.telegramPages) && edition.telegramPages.length
+    ? edition.telegramPages
+    : undefined;
   activePageUrls = Array.isArray(edition.pages)
     ? edition.pages.map(value => typeof value === "string" ? value : value?.url || value?.src || "").filter(url => /^https?:\/\//i.test(url))
     : [];
@@ -335,10 +349,15 @@ function normalizeItem(edition) {
   activeEditionForPageUrls = id;
   window.BancaTelegramPages = {
     imageUrl(itemId, pageNumber) {
-      if (String(itemId) === String(activeEditionForPageUrls) && Number(pageNumber) >= 1) {
-        return activePageUrls[Number(pageNumber) - 1] || "";
-      }
-      return "";
+      const index = Number(pageNumber) - 1;
+      if (String(itemId) !== String(activeEditionForPageUrls) || index < 0) return "";
+      if (activePageUrls[index]) return activePageUrls[index];
+      const base = String(window.BANCA_SUPABASE_URL || "").replace(/\/+$/, "");
+      if (!base) return "";
+      const url = new URL(base + "/functions/v1/telegram-page-image");
+      url.searchParams.set("item_id", String(itemId));
+      url.searchParams.set("page", String(pageNumber));
+      return url.href;
     }
   };
   const isImagePages = activePageUrls.length > 0;
@@ -348,7 +367,7 @@ function normalizeItem(edition) {
     id, title: String(edition.title || edition.name || "Quadrinho"),
     sourceUrl, fileUrl: sourceUrl, backupUrls: edition.backupUrls || [],
     format, local: false,
-    telegramPages: isImagePages ? activePageUrls.map((url, index) => ({page:index + 1, url})) : undefined
+    telegramPages: isImagePages ? activePageUrls.map((url, index) => ({page:index + 1, url})) : originalTelegramPages
   };
 }
 function showEmptyReader(message) {
@@ -364,48 +383,87 @@ function showEmptyReader(message) {
   panel.style.cssText = "width:calc(100% - 32px);max-width:650px;margin:auto;padding:28px 20px;text-align:center;box-sizing:border-box";
 
   const heading = document.createElement("h2");
-  heading.textContent = "Abrir quadrinho do computador";
+  heading.textContent = "Abrir edição no leitor";
   heading.style.cssText = "margin:0 0 10px;color:#f1f1f3";
 
   const description = document.createElement("p");
-  description.textContent = message || "Escolha um arquivo do seu computador para ler aqui.";
-  description.style.cssText = "margin:0 auto 12px;max-width:520px;color:#b7b7bf";
+  description.textContent = message || "Escolha um arquivo do computador ou cole o link de uma edição da Banca Digital.";
+  description.style.cssText = "margin:0 auto 16px;max-width:520px;color:#b7b7bf";
 
   const formats = document.createElement("p");
-  formats.textContent = "Formatos aceitos: PDF, CBZ, CBR, JPG, PNG, WEBP e GIF.";
+  formats.textContent = "Arquivos aceitos: PDF, CBZ, CBR, JPG, PNG, WEBP e GIF.";
   formats.style.cssText = "margin:0 auto 18px;color:#92929b;font-size:12px";
 
-  const input = document.createElement("input");
-  input.type = "file";
-  input.id = "local-comic-file";
-  input.accept = ".pdf,.cbz,.cbr,.jpg,.jpeg,.png,.webp,.gif,application/pdf,image/jpeg,image/png,image/webp,image/gif";
-  input.setAttribute("aria-label", "Escolher arquivo de quadrinho");
-  input.style.cssText = "position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0";
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.id = "local-comic-file";
+  fileInput.accept = ".pdf,.cbz,.cbr,.jpg,.jpeg,.png,.webp,.gif,application/pdf,image/jpeg,image/png,image/webp,image/gif";
+  fileInput.setAttribute("aria-label", "Escolher arquivo de quadrinho");
+  fileInput.style.cssText = "position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0";
 
   const chooseButton = document.createElement("button");
   chooseButton.type = "button";
   chooseButton.className = "btn btn-primary";
   chooseButton.textContent = "Escolher arquivo do computador";
   chooseButton.style.cssText = "display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:10px 18px;cursor:pointer";
-  chooseButton.addEventListener("click", () => input.click());
+  chooseButton.addEventListener("click", () => fileInput.click());
 
-  const filename = document.createElement("div");
-  filename.style.cssText = "margin-top:12px;color:#b7b7bf;font-size:12px;overflow-wrap:anywhere";
-  filename.textContent = "O arquivo será aberto localmente no navegador; ele não será enviado para um servidor.";
+  const fileStatus = document.createElement("div");
+  fileStatus.style.cssText = "margin-top:10px;color:#b7b7bf;font-size:12px;overflow-wrap:anywhere";
+  fileStatus.textContent = "O arquivo é aberto no navegador e não é enviado a um servidor.";
 
-  input.addEventListener("change", () => {
-    const file = input.files && input.files[0];
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files && fileInput.files[0];
     if (!file) return;
-    filename.textContent = "Abrindo " + file.name + "…";
+    fileStatus.textContent = "Abrindo " + file.name + "…";
     chooseButton.disabled = true;
     void openLocalComicFile(file).catch(error => {
       chooseButton.disabled = false;
-      filename.textContent = "";
-      showEmptyReader(error?.message || "Não foi possível abrir esse arquivo.");
+      fileStatus.textContent = error?.message || "Não foi possível abrir esse arquivo.";
     });
   });
 
-  panel.append(heading, description, formats, input, chooseButton, filename);
+  const separator = document.createElement("div");
+  separator.style.cssText = "height:1px;background:#303036;margin:22px auto;max-width:480px";
+
+  const linkHeading = document.createElement("h3");
+  linkHeading.textContent = "Ou cole o link da edição da Banca Digital";
+  linkHeading.style.cssText = "margin:0 0 10px;color:#f1f1f3;font-size:15px";
+
+  const linkForm = document.createElement("form");
+  linkForm.style.cssText = "display:flex;flex-direction:column;gap:10px;width:100%;max-width:500px;margin:0 auto";
+  const linkInput = document.createElement("input");
+  linkInput.type = "url";
+  linkInput.id = "banca-edition-link";
+  linkInput.placeholder = "https://uriel29m.github.io/bancadigital/?ler=...";
+  linkInput.autocomplete = "url";
+  linkInput.spellcheck = false;
+  linkInput.setAttribute("aria-label", "Link da edição na Banca Digital");
+  linkInput.style.cssText = "box-sizing:border-box;width:100%;min-height:42px;padding:10px 12px;border:1px solid #44444c;border-radius:7px;background:#151519;color:#f1f1f3;font:inherit";
+  const linkButton = document.createElement("button");
+  linkButton.type = "submit";
+  linkButton.className = "btn btn-primary";
+  linkButton.textContent = "Abrir link no leitor";
+  linkButton.style.cssText = "min-height:42px;padding:10px 18px;cursor:pointer";
+  const linkStatus = document.createElement("div");
+  linkStatus.id = "banca-link-status";
+  linkStatus.setAttribute("role", "status");
+  linkStatus.setAttribute("aria-live", "polite");
+  linkStatus.style.cssText = "min-height:18px;color:#b7b7bf;font-size:12px;overflow-wrap:anywhere";
+  linkForm.append(linkInput, linkButton, linkStatus);
+  linkForm.addEventListener("submit", event => {
+    event.preventDefault();
+    linkButton.disabled = true;
+    linkStatus.textContent = "Localizando edição e preparando o leitor…";
+    void openBancaEditionLink(linkInput.value).then(() => {
+      linkStatus.textContent = "";
+    }).catch(error => {
+      linkStatus.textContent = error?.message || "Não foi possível abrir essa edição.";
+      linkButton.disabled = false;
+    });
+  });
+
+  panel.append(heading, description, formats, fileInput, chooseButton, fileStatus, separator, linkHeading, linkForm);
   body.replaceChildren(panel);
   body.classList.remove("continuous", "reader-grayscale", "reader-gesture-zoom");
   body.style.removeProperty("--reader-zoom");
@@ -447,6 +505,160 @@ async function openLocalComicFile(file) {
   }
 }
 
+const catalogScriptLoads = new Map();
+const CATALOG_SCRIPTS = [
+  "js/data/dc-comics/recentes.js",
+  "js/data/dc-comics/black-label.js",
+  "js/data/dc-comics/milestone.js",
+  "js/data/dc-comics/novos-52.js",
+  "js/catalog-identity.js"
+];
+function loadBancaScript(pathOrUrl) {
+  const src = /^https?:\/\//i.test(pathOrUrl) ? pathOrUrl : new URL(pathOrUrl, BANCADIGITAL_BASE).href;
+  if (catalogScriptLoads.has(src)) return catalogScriptLoads.get(src);
+  const alreadyPresent = Array.from(document.scripts).some(script => script.src === src);
+  if (alreadyPresent && (src.includes("reader-deps.js") || src.includes("supabase.js"))) return Promise.resolve();
+  const promise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = false;
+    script.onload = () => resolve();
+    script.onerror = () => {
+      script.remove();
+      catalogScriptLoads.delete(src);
+      reject(new Error("Não foi possível carregar " + new URL(src).pathname.split("/").pop() + " da Banca Digital."));
+    };
+    document.head.appendChild(script);
+  });
+  catalogScriptLoads.set(src, promise);
+  return promise;
+}
+async function ensureSupabaseClient() {
+  if (sb) return sb;
+  if (!window.supabase?.createClient) {
+    await loadBancaScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2");
+  }
+  if (!window.BANCA_SUPABASE_URL || !window.BANCA_SUPABASE_KEY) {
+    await loadBancaScript("js/supabase.js");
+  }
+  if (!window.supabase?.createClient || !window.BANCA_SUPABASE_URL || !window.BANCA_SUPABASE_KEY) {
+    throw new Error("Não foi possível conectar ao catálogo da Banca Digital.");
+  }
+  sb = window.supabase.createClient(window.BANCA_SUPABASE_URL, window.BANCA_SUPABASE_KEY);
+  return sb;
+}
+function parseBancaEditionId(value) {
+  const raw = String(value || "").trim();
+  if (!raw) throw new Error("Cole o link de uma edição da Banca Digital.");
+  // Aceita também o ID cru da edição, além do link completo.
+  if (/^[a-zA-Z0-9][a-zA-Z0-9_-]{1,180}$/.test(raw) && !raw.includes("://")) return raw;
+  let url;
+  try { url = new URL(raw, BANCADIGITAL_BASE); }
+  catch { throw new Error("Link inválido. Cole a URL completa da edição."); }
+  if (url.hostname.toLowerCase() !== "uriel29m.github.io" ||
+      !/^\/bancadigital\/?$/.test(url.pathname)) {
+    throw new Error("Use o link da edição na Banca Digital, no formato https://uriel29m.github.io/bancadigital/?ler=ID.");
+  }
+  const id = url.searchParams.get("ler") || url.searchParams.get("edicao") || url.searchParams.get("id");
+  if (!id || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{1,180}$/.test(id)) {
+    throw new Error("Esse link não identifica uma edição. Copie o endereço da edição aberta na Banca Digital (ele deve conter ?ler=...).");
+  }
+  return id;
+}
+async function findStaticBancaEdition(id) {
+  for (const path of CATALOG_SCRIPTS) {
+    if (path === "js/catalog-identity.js") {
+      if (!window.__comicReaderCatalogIdentityLoaded) {
+        try { await loadBancaScript(path); } catch (error) { console.warn(error); }
+        window.__comicReaderCatalogIdentityLoaded = true;
+      }
+    } else {
+      await loadBancaScript(path);
+    }
+    const found = Array.isArray(window.DEFAULT_LIBRARY)
+      ? window.DEFAULT_LIBRARY.find(item => String(item?.id || "") === String(id))
+      : null;
+    if (found) {
+      // Identity normalization is safe and keeps the official series IDs intact.
+      if (!window.__comicReaderCatalogIdentityLoaded) {
+        try { await loadBancaScript("js/catalog-identity.js"); } catch (error) { console.warn(error); }
+        window.__comicReaderCatalogIdentityLoaded = true;
+      }
+      return (window.DEFAULT_LIBRARY || []).find(item => String(item?.id || "") === String(id)) || found;
+    }
+  }
+  return Array.isArray(window.DEFAULT_LIBRARY)
+    ? window.DEFAULT_LIBRARY.find(item => String(item?.id || "") === String(id)) || null
+    : null;
+}
+const CATALOG_OVERRIDE_FIELDS = [
+  "coverUrl", "cover", "featuredCoverUrl", "fileUrl", "telegramUrl", "telegramFileId",
+  "telegramFileName", "telegramFileSize", "backupUrls", "telegramPages",
+  "telegramPageFiles", "telegramPagesPending", "telegramPagesMigration", "format"
+];
+function mergeCatalogEdition(baseItem, edition) {
+  const merged = {...(baseItem || {}), ...(edition || {})};
+  for (const field of CATALOG_OVERRIDE_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(edition || {}, field)) merged[field] = edition[field];
+    else delete merged[field];
+  }
+  return merged;
+}
+async function loadCatalogOverride(id) {
+  const client = await ensureSupabaseClient();
+  const {data, error} = await client
+    .from("catalog_edition_overrides")
+    .select("item_id,edition,created_at,updated_at")
+    .eq("item_id", String(id))
+    .maybeSingle();
+  if (error) throw error;
+  if (!data?.edition) return null;
+  if (String(data.item_id) !== String(id) || String(data.edition.id) !== String(id)) {
+    throw new Error("O registro compartilhado desta edição está inconsistente.");
+  }
+  return data;
+}
+async function openBancaEditionLink(value) {
+  const id = parseBancaEditionId(value);
+  const status = $("#banca-link-status");
+  if (status) status.textContent = "Buscando edição " + id + "…";
+  const [staticResult, overrideResult] = await Promise.allSettled([
+    findStaticBancaEdition(id),
+    loadCatalogOverride(id)
+  ]);
+  const baseItem = staticResult.status === "fulfilled" ? staticResult.value : null;
+  const overrideRecord = overrideResult.status === "fulfilled" ? overrideResult.value : null;
+  if (staticResult.status === "rejected") console.warn("Catálogo estático indisponível:", staticResult.reason);
+  if (overrideResult.status === "rejected") console.warn("Metadados atualizados indisponíveis:", overrideResult.reason);
+  if (!baseItem && !overrideRecord?.edition) {
+    const detail = overrideResult.status === "rejected"
+      ? " Não foi possível consultar os metadados atualizados do catálogo."
+      : "";
+    throw new Error("Não encontrei essa edição no catálogo da Banca Digital. Confira se o ID do link está correto." + detail);
+  }
+  let item = overrideRecord?.edition
+    ? mergeCatalogEdition(baseItem || {id, title: overrideRecord.edition.title || overrideRecord.edition.name || id}, overrideRecord.edition)
+    : {...baseItem};
+  if (item.catalogDeleted === true) {
+    throw new Error("Essa edição foi removida do catálogo da Banca Digital.");
+  }
+  if (overrideRecord?.edition?.telegramBaseUrl) {
+    window.BANCA_SUPABASE_URL = String(overrideRecord.edition.telegramBaseUrl).replace(/\/+$/, "");
+  }
+  const hasTelegramPages = Array.isArray(item.telegramPages) && item.telegramPages.length > 0;
+  const hasTelegramFile = Boolean(item.telegramUrl && item.id && window.BANCA_SUPABASE_URL);
+  const hasSource = Boolean(item.sourceUrl || item.fileUrl || item.url || hasTelegramPages || hasTelegramFile);
+  if (!hasSource) {
+    throw new Error("A edição foi encontrada, mas não tem arquivo nem páginas do Telegram cadastrados para abrir.");
+  }
+  const normalized = normalizeItem({...item, local:false});
+  // A tela inicial permanece atrás do leitor; o botão Voltar retorna ao campo de link.
+  state.readerItemId = normalized.id;
+  readerIsOpen = false;
+  activeReaderCleanup?.();
+  activeReaderCleanup = null;
+  openReader(normalized, {routeSync:true, skipCover: normalized.skipCover === true, standalone:true});
+}
 async function bootStandaloneReader() {
   const fallback = $("#reader-overlay");
   try {
@@ -665,7 +877,7 @@ function openReader(item, options = {}) {
       toast("Esta edição está indisponível.");
       return;
     }
-    if (!telegramPagesMode && !options.telegramResolved && !item.local && isTelegramPostUrl(item.telegramUrl) && navigator.onLine !== false && sb) {
+    if (!telegramPagesMode && !options.standalone && !options.telegramResolved && !item.local && isTelegramPostUrl(item.telegramUrl) && navigator.onLine !== false && sb && window.BancaTelegram?.published) {
       if (readerIsOpen && activeReaderCleanup && String(state.readerItemId || "") === String(item.id || "") && document.querySelector(".reader-overlay")) return;
       void window.BancaTelegram.published(item, sb).then(canonical => {
         if (!canonical.telegramFileId && !canonical.fileUrl) {
@@ -836,8 +1048,10 @@ function openReader(item, options = {}) {
         navigate({ pagina: state.session?.offline ? "downloads" : "" }, true);
         return;
       }
-      if (item.local) {
-        showEmptyReader("Arquivo fechado. Escolha outro arquivo do computador para continuar lendo.");
+      if (item.local || options.standalone) {
+        showEmptyReader(item.local
+          ? "Arquivo fechado. Escolha outro arquivo do computador ou cole um link da Banca Digital."
+          : "Edição fechada. Cole outro link da Banca Digital ou escolha um arquivo do computador.");
         return;
       }
       // A rota do leitor já foi adicionada ao histórico ao abrir o gibi.
