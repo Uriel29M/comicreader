@@ -644,15 +644,53 @@ async function loadReaderCatalogSources() {
     catch(error){console.warn("[ComicReader] Fonte de catálogo indisponível:",path,error);}
   }
 }
+function readerCoverCandidates(item) {
+  const seriesId=String(item?.seriesId||"");
+  const series=(window.DEFAULT_SERIES||[]).find(entry=>String(entry?.id||"")===seriesId)||null;
+  const defaultCover=window.BancaSeriesDefaults?.get?.(seriesId)||null;
+  const values=[item?.coverUrl,item?.cover,item?.featuredCoverUrl,defaultCover?.cover_url,series?.coverUrl,series?.cover,series?.featuredCoverUrl];
+  const urls=[];
+  for(let value of values){
+    if(value&&typeof value==="object")value=value.url||value.src||value.coverUrl||value.cover_url||"";
+    const raw=String(value||"").trim();
+    if(!raw)continue;
+    try{
+      let url;
+      if(/^(?:https?:|data:|blob:)/i.test(raw)||raw.startsWith("//"))url=new URL(raw,BANCADIGITAL_BASE);
+      else {
+        const relative=raw.startsWith("/")?raw.split("/").filter(Boolean).join("/"):raw;
+        url=new URL(relative,BANCADIGITAL_BASE);
+      }
+      if(!/^(?:https?:|data:|blob:)$/.test(url.protocol))continue;
+      if(!urls.includes(url.href))urls.push(url.href);
+    }catch{}
+  }
+  return urls;
+}
 function readerSeriesCardMarkup(item) {
-  const cover=String(item?.coverUrl||item?.cover||item?.featuredCoverUrl||"");
   const issue=seriesIssueDisplay(item);
   const issueLabel=issue?(/^\d+(?:\.\d+)?$/.test(issue)?"#"+issue:issue):"";
   const title=String(item?.title||item?.name||item?.seriesTitle||"Quadrinho");
   const meta=[item.year,item.publisher,item.imprint].filter(Boolean).map(value=>'<span>'+escapeHTML(value)+'</span>').join("");
   return '<div class="card-wrap"><article class="card reader-series-card" data-reader-series-edition="'+escapeHTML(item.id)+'">' +
-    '<div class="cover" '+(cover?'style="background-image:url(\''+escapeHTML(cover)+'\')"':'')+'><div class="cover-labels">'+(issueLabel?'<span class="cover-number">'+escapeHTML(issueLabel)+'</span>':'')+'</div></div>' +
+    '<div class="cover"><img class="reader-series-cover-image" data-reader-series-cover="'+escapeHTML(item.id)+'" alt="" aria-hidden="true" loading="lazy" decoding="async" hidden style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0"><div class="cover-labels">'+(issueLabel?'<span class="cover-number">'+escapeHTML(issueLabel)+'</span>':'')+'</div></div>' +
     '<div class="card-body"><div class="card-title">'+escapeHTML(title)+'</div><div class="card-meta">'+meta+'</div><div class="card-stats"><span>'+escapeHTML(item.year||"")+'</span></div></div></article></div>';
+}
+function attachReaderSeriesCoverImages(root,list) {
+  const byId=new Map(list.map(item=>[String(item?.id||""),item]));
+  root.querySelectorAll("[data-reader-series-cover]").forEach(image=>{
+    const item=byId.get(String(image.dataset.readerSeriesCover||""));
+    const candidates=readerCoverCandidates(item);
+    if(!candidates.length){image.remove();return;}
+    let nextIndex=0;
+    const tryNext=()=>{
+      if(nextIndex>=candidates.length){image.remove();return;}
+      image.hidden=false;
+      image.src=candidates[nextIndex++];
+    };
+    image.addEventListener("error",tryNext);
+    tryNext();
+  });
 }
 async function openSeriesSelection(series, editions=[], returnToCoverVariants=false, returnToFileReports=false, returnToReader=null, allowHiddenPreview=false, forcePage=false) {
   const seriesId=String(series?.seriesId||series?.id||"");
@@ -711,6 +749,7 @@ async function openSeriesSelection(series, editions=[], returnToCoverVariants=fa
       : "";
     const panels=volumeEntries.map((entry,index)=>'<div class="series-volume-panel" data-series-volume-panel="'+index+'" '+(index?"hidden":"")+'><div class="section-subtitle series-volume-heading">'+escapeHTML(entry[0])+'</div><div class="results-grid">'+entry[1].map(readerSeriesCardMarkup).join("")+'</div></div>').join("");
     content.innerHTML=tabs+panels;
+    attachReaderSeriesCoverImages(content,list);
     content.querySelectorAll("[data-series-volume-tab]").forEach(tab=>tab.addEventListener("click",()=>{
       const selected=tab.dataset.seriesVolumeTab;
       content.querySelectorAll("[data-series-volume-tab]").forEach(button=>button.classList.toggle("is-active",button===tab));
