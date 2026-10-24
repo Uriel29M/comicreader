@@ -226,6 +226,9 @@
         telegramFileId: String(data.telegramFileId || existingItem.telegramFileId || ""),
         local: false
       };
+      ["telegramFileName", "telegramFileSize", "backupUrls", "telegramPageFiles", "telegramPagesPending", "telegramPagesMigration"].forEach(field => {
+        if (Object.prototype.hasOwnProperty.call(data, field)) item[field] = data[field];
+      });
       if (hasPageSource) item.telegramPages = Array.from({ length: pageCount }, (_, index) => index + 1);
 
       window.DEFAULT_LIBRARY = [...defaults.filter(entry => String(entry.id) !== itemId), item];
@@ -236,6 +239,7 @@
       // Keep the link's edition source authoritative while the live catalog refreshes.
       const sourceFields = new Set();
       if (suppliedSourceURL) sourceFields.add("fileUrl");
+      if (Object.prototype.hasOwnProperty.call(data, "format")) sourceFields.add("format");
       if (hasPageSource) {
         sourceFields.add("telegramPages");
         sourceFields.add("format");
