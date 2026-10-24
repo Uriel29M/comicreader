@@ -575,42 +575,92 @@ function readerSeriesCardMarkup(item) {
     '<div class="card-body"><div class="card-title">'+escapeHTML(title)+'</div><div class="card-meta">'+meta+'</div><div class="card-stats"><span>'+escapeHTML(item.year||"")+'</span></div></div></article></div>';
 }
 async function openSeriesSelection(series, editions=[], returnToCoverVariants=false, returnToFileReports=false, returnToReader=null, allowHiddenPreview=false, forcePage=false) {
-  await loadReaderCatalogSources();
-  const refreshed=seriesEditions(series);
-  const list=refreshed.length?refreshed:(Array.isArray(editions)?editions:[]);
-  if(!list.length){
-    const url=series?.seriesUrl||series?.seriesPageUrl;
-    if(url)window.open(url,"_blank","noopener,noreferrer");
-    else readerActionToast("Não encontrei outras edições desta série no catálogo.");
-    return;
-  }
-  const volumes=new Map();
-  list.forEach(item=>{const label=item.volumeTitle||item.volume||"Edições";if(!volumes.has(label))volumes.set(label,[]);volumes.get(label).push(item);});
-  const entries=[...volumes.entries()];
-  const tabs=entries.length>1?'<div class="series-volume-tabs">'+entries.map((entry,index)=>'<button class="small-btn '+(index===0?"is-active":"")+'" type="button" data-series-volume-tab="'+index+'">'+escapeHTML(entry[0])+'</button>').join("")+'</div>':"";
-  const panels=entries.map((entry,index)=>'<div class="series-volume-panel" data-series-volume-panel="'+index+'" '+(index?"hidden":"")+'><div class="section-subtitle series-volume-heading">'+escapeHTML(entry[0])+'</div><div class="results-grid">'+entry[1].map(readerSeriesCardMarkup).join("")+'</div></div>').join("");
-  const title=String(series?.seriesTitle||series?.title||series?.name||"Série");
-  const overlay=document.createElement("div");overlay.className="modal-backdrop";overlay.style.zIndex="100001";
-  overlay.innerHTML='<div class="modal series-modal"><div class="section-head"><div><div class="eyebrow">Série</div><h2>'+escapeHTML(title)+'</h2><div class="section-subtitle">'+list.length+' edições · selecione uma edição para abrir</div></div><div class="modal-actions">'+
+  const seriesId=String(series?.seriesId||series?.id||"");
+  const existing=document.querySelector("[data-reader-series-dialog]");
+  existing?.remove();
+
+  const overlay=document.createElement("div");
+  overlay.className="modal-backdrop";
+  overlay.dataset.readerSeriesDialog="true";
+  overlay.style.zIndex="100001";
+  const seriesRecord=()=>((window.DEFAULT_SERIES||[]).find(entry=>String(entry.id)===seriesId)||null);
+  const initialTitle=String(series?.seriesTitle||series?.title||series?.name||seriesRecord()?.title||"Série");
+  overlay.innerHTML='<div class="modal series-modal"><div class="section-head"><div><div class="eyebrow">Série</div><h2 data-series-title>'+escapeHTML(initialTitle)+'</h2><div class="section-subtitle" data-series-count>Carregando edições…</div></div><div class="modal-actions">'+
     '<button class="small-btn" data-back-cover-variants '+(returnToCoverVariants?"":"hidden")+' type="button">Voltar</button>'+
     '<button class="small-btn" data-back-file-reports '+(returnToFileReports?"":"hidden")+' type="button">Voltar</button>'+
     '<button class="small-btn" data-back-reader '+(returnToReader?"":"hidden")+' type="button">Voltar à história</button>'+
-    '<button class="small-btn" data-close type="button">Fechar</button></div></div>'+tabs+panels+'</div>';
+    '<button class="small-btn" data-close type="button">Fechar</button></div></div>'+
+    '<div data-series-content><p class="section-subtitle">Carregando as edições desta série…</p></div></div>';
   (document.querySelector("#modal-root")||document.body).appendChild(overlay);
-  const close=()=>overlay.remove();
+
+  let closed=false;
+  const close=()=>{if(closed)return;closed=true;document.removeEventListener("keydown",onKeyDown);overlay.remove();};
+  const onKeyDown=event=>{if(event.key==="Escape"&&overlay.isConnected){event.preventDefault();close();}};
+  document.addEventListener("keydown",onKeyDown);
   overlay.addEventListener("click",event=>{if(event.target===overlay)close();});
   overlay.querySelector("[data-close]")?.addEventListener("click",close);
-  overlay.querySelector("[data-back-reader]")?.addEventListener("click",()=>{close();if(returnToReader)void openReader(returnToReader,{routeSync:true});});
-  overlay.querySelectorAll("[data-series-volume-tab]").forEach(tab=>tab.addEventListener("click",()=>{
-    const selected=tab.dataset.seriesVolumeTab;
-    overlay.querySelectorAll("[data-series-volume-tab]").forEach(button=>button.classList.toggle("is-active",button===tab));
-    overlay.querySelectorAll("[data-series-volume-panel]").forEach(panel=>{panel.hidden=panel.dataset.seriesVolumePanel!==selected;});
-  }));
-  overlay.querySelectorAll("[data-reader-series-edition]").forEach(card=>{
-    card.tabIndex=0;card.setAttribute("role","button");
-    const open=()=>{const target=list.find(entry=>String(entry.id)===String(card.dataset.readerSeriesEdition));if(!target)return;close();void openReader(target,{routeSync:true});};
-    card.addEventListener("click",open);
-    card.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();open();}});
+  overlay.querySelector("[data-back-reader]")?.addEventListener("click",()=>{
+    close();
+    if(returnToReader?.id)void openBancaEditionLink(readerCanonicalShareUrl(returnToReader.id)).catch(error=>showEmptyReader(error?.message||"Não foi possível reabrir a história."));
+  });
+  overlay.querySelector("[data-back-cover-variants]")?.addEventListener("click",()=>{close();readerActionToast("Abra a seleção de capas pela página da Banca Digital.");});
+  overlay.querySelector("[data-back-file-reports]")?.addEventListener("click",()=>{close();readerActionToast("Abra os relatórios pela página da Banca Digital.");});
+  overlay.querySelector("[data-close]")?.focus();
+
+  const content=overlay.querySelector("[data-series-content]");
+  const countLabel=overlay.querySelector("[data-series-count]");
+  const renderList=()=>{
+    if(closed||!overlay.isConnected)return;
+    const loaded=seriesEditions({seriesId});
+    const merged=new Map();
+    for(const entry of (Array.isArray(editions)?editions:[]))if(entry?.id)merged.set(String(entry.id),entry);
+    for(const entry of loaded)if(entry?.id)merged.set(String(entry.id),{...(merged.get(String(entry.id))||{}),...entry});
+    const list=[...merged.values()].sort((a,b)=>seriesIssueSortValue(a)-seriesIssueSortValue(b));
+    const title=String(seriesRecord()?.title||series?.seriesTitle||series?.title||series?.name||"Série");
+    overlay.querySelector("[data-series-title]").textContent=title;
+    if(!list.length){
+      countLabel.textContent="Nenhuma edição encontrada";
+      content.innerHTML='<p class="section-subtitle">Não foi possível encontrar as edições desta série no catálogo carregado. Feche e tente novamente.</p>';
+      return;
+    }
+    countLabel.textContent=list.length+" edições · selecione uma edição para abrir";
+    const volumes=new Map();
+    list.forEach(entry=>{const label=entry.volumeTitle||entry.volume||"Edições";if(!volumes.has(label))volumes.set(label,[]);volumes.get(label).push(entry);});
+    const volumeEntries=[...volumes.entries()];
+    const tabs=volumeEntries.length>1
+      ? '<div class="series-volume-tabs">'+volumeEntries.map((entry,index)=>'<button class="small-btn '+(index===0?"is-active":"")+'" type="button" data-series-volume-tab="'+index+'">'+escapeHTML(entry[0])+'</button>').join("")+'</div>'
+      : "";
+    const panels=volumeEntries.map((entry,index)=>'<div class="series-volume-panel" data-series-volume-panel="'+index+'" '+(index?"hidden":"")+'><div class="section-subtitle series-volume-heading">'+escapeHTML(entry[0])+'</div><div class="results-grid">'+entry[1].map(readerSeriesCardMarkup).join("")+'</div></div>').join("");
+    content.innerHTML=tabs+panels;
+    content.querySelectorAll("[data-series-volume-tab]").forEach(tab=>tab.addEventListener("click",()=>{
+      const selected=tab.dataset.seriesVolumeTab;
+      content.querySelectorAll("[data-series-volume-tab]").forEach(button=>button.classList.toggle("is-active",button===tab));
+      content.querySelectorAll("[data-series-volume-panel]").forEach(panel=>{panel.hidden=panel.dataset.seriesVolumePanel!==selected;});
+    }));
+    content.querySelectorAll("[data-reader-series-edition]").forEach(card=>{
+      card.tabIndex=0;card.setAttribute("role","button");
+      const open=()=>{
+        const target=list.find(entry=>String(entry.id)===String(card.dataset.readerSeriesEdition));
+        if(!target)return;
+        close();
+        // Always reload through the official edition resolver so Supabase overrides,
+        // Telegram pages, and the canonical source are used instead of stale catalog data.
+        void openBancaEditionLink(readerCanonicalShareUrl(target.id)).catch(error=>{
+          console.error("[ComicReader] Não foi possível abrir a edição da série:",error);
+          showEmptyReader(error?.message||"Não foi possível abrir esta edição.");
+        });
+      };
+      card.addEventListener("click",open);
+      card.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();open();}});
+    });
+  };
+
+  // Show the modal immediately, then resolve the catalog in the background. The
+  // previous implementation waited for every large catalog script before showing UI.
+  renderList();
+  void loadReaderCatalogSources().then(renderList).catch(error=>{
+    console.warn("[ComicReader] Falha ao carregar o catálogo completo da série:",error);
+    renderList();
   });
 }
 function openEditForm() { readerActionToast("Edite os metadados pelo catálogo da Banca Digital."); }
@@ -675,7 +725,7 @@ function appendSeriesNavigation(item,controls,overlay) {
       const nav=document.createElement("span");nav.dataset.seriesNav="true";nav.className="series-reader-nav";nav.innerHTML=html;host.appendChild(nav);
       nav.querySelectorAll("[data-series-target]").forEach(button=>button.addEventListener("click",()=>{
         const target=editions[Number(button.dataset.seriesTarget)];
-        if(target&&String(target.id)!==String(item.id))void openReader(target,{routeSync:true});
+        if(target&&String(target.id)!==String(item.id))void openBancaEditionLink(readerCanonicalShareUrl(target.id)).catch(error=>showEmptyReader(error?.message||"Não foi possível abrir esta edição."));
       }));
     };
     if(current>0){
@@ -1542,8 +1592,7 @@ function openReader(item, options = {}) {
       event.stopPropagation();
       const editions = seriesEditions(item);
       cleanupReader();
-      setSection("home");
-      openSeriesSelection(item, editions, false, false, item);
+      void openSeriesSelection(item, editions, false, false, item);
     });
     $$('[data-reader-custom-link]', overlay).forEach(button => button.addEventListener("click", () => window.open(button.dataset.readerCustomLink, "_blank", "noopener")));
     $("[data-open-external]", overlay)?.addEventListener("click", () => window.open(resolvedUrl, "_blank", "noopener"));
