@@ -271,15 +271,74 @@ function toast(message) {
     body.replaceChildren(note);
   }
 }
-function toggleComicLike() {}
-function shareComic() {}
-function openCommentsPopup() {}
-function seriesEditions() { return []; }
-function openSeriesSelection() {}
-function openEditForm() {}
-function openEntityPage() {}
-function attachComments() {}
-function appendSeriesNavigation() {}
+function readerActionToast(message) {
+  let node = document.querySelector("[data-reader-action-toast]");
+  if (!node) { node = document.createElement("div"); node.dataset.readerActionToast = "1"; node.style.cssText = "position:fixed;z-index:100000;left:50%;bottom:24px;transform:translateX(-50%);max-width:90vw;padding:11px 16px;border:1px solid #444;border-radius:10px;background:#171719;color:#fff;font:14px system-ui;text-align:center"; document.body.appendChild(node); }
+  node.textContent = message; clearTimeout(node._timer); node._timer = setTimeout(() => node.remove(), 3000);
+}
+function readerActionStore(key, fallback) { try { return JSON.parse(localStorage.getItem(key) || "null") ?? fallback; } catch { return fallback; } }
+function toggleComicLike(itemId) {
+  const id = String(itemId || state.readerItemId || ""); if (!id) return;
+  const likes = readerActionStore("comicreader-likes-v1", {}), liked = !!likes[id];
+  if (liked) delete likes[id]; else likes[id] = true;
+  try { localStorage.setItem("comicreader-likes-v1", JSON.stringify(likes)); } catch {}
+  state.comicLikeIds[liked ? "delete" : "add"](id);
+  const button = document.querySelector("[data-like-item]");
+  if (button) { button.classList.toggle("is-liked", !liked); button.textContent = (liked ? "♡" : "♥") + " " + Math.max(0, Number(state.comicLikeCounts.get(id) || 0) + (liked ? -1 : 1)); button.setAttribute("aria-pressed", String(!liked)); }
+  readerActionToast(liked ? "Curtida removida neste navegador." : "Quadrinho curtido neste navegador.");
+}
+async function shareComic(itemId) {
+  const url = new URL(location.href); url.searchParams.set("ler", String(itemId || state.readerItemId || ""));
+  const data = {title: $("#editionTitle")?.textContent || "Banca Digital", text: "Confira este quadrinho na Banca Digital.", url: url.href};
+  try { if (navigator.share) await navigator.share(data); else if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(url.href); readerActionToast("Link da edição copiado."); } else window.prompt("Copie o link da edição:", url.href); }
+  catch (error) { if (error?.name !== "AbortError") window.prompt("Copie o link da edição:", url.href); }
+}
+function openCommentsPopup(item) {
+  const panel = $("#reader-overlay [data-reader-comments-panel]");
+  if (panel) { panel.hidden = false; panel.scrollIntoView({behavior:"smooth",block:"nearest"}); panel.querySelector("textarea")?.focus(); }
+}
+function seriesEditions(item) {
+  const all = Array.isArray(window.DEFAULT_LIBRARY) ? window.DEFAULT_LIBRARY : [];
+  if (!item?.seriesId) return [];
+  return all.filter(entry => String(entry?.seriesId || "") === String(item.seriesId))
+    .sort((a,b) => String(a.title || a.name || "").localeCompare(String(b.title || b.name || ""), "pt-BR"));
+}
+function openSeriesSelection(item, editions = []) {
+  const list = editions.length ? editions : seriesEditions(item);
+  if (!list.length) { if (item?.seriesUrl) window.open(item.seriesUrl, "_blank", "noopener,noreferrer"); else readerActionToast("Não encontrei outras edições desta série no catálogo carregado."); return; }
+  const dialog = document.createElement("dialog"); dialog.style.cssText = "width:min(92vw,560px);max-height:80vh;overflow:auto;border:1px solid #444;border-radius:14px;background:#111;color:#fff;padding:20px";
+  const heading = document.createElement("h2"); heading.textContent = "Edições da série"; dialog.appendChild(heading);
+  list.forEach(entry => { const b = document.createElement("button"); b.type = "button"; b.textContent = String(entry.title || entry.name || "Edição"); b.style.cssText = "display:block;width:100%;text-align:left;padding:12px;margin:6px 0;border:1px solid #39393f;border-radius:8px;background:#202024;color:inherit;cursor:pointer"; b.onclick = () => { dialog.close(); dialog.remove(); void openReader(entry, {routeSync:true}); }; dialog.appendChild(b); });
+  const close = document.createElement("button"); close.type = "button"; close.textContent = "Fechar"; close.onclick = () => { dialog.close(); dialog.remove(); }; dialog.appendChild(close);
+  document.body.appendChild(dialog); if (dialog.showModal) dialog.showModal(); else dialog.setAttribute("open", "");
+}
+function openEditForm() { readerActionToast("Edite os metadados pelo catálogo da Banca Digital."); }
+function openEntityPage(value, kind) { const url = new URL(BANCADIGITAL_BASE); url.searchParams.set(kind === "character" ? "personagem" : "editora", String(value || "")); window.open(url.href, "_blank", "noopener,noreferrer"); }
+function attachComments(item, overlay) {
+  const panel = overlay.querySelector("[data-reader-comments-panel]"), toggle = overlay.querySelector("[data-reader-comments-toggle]");
+  if (!panel || !toggle) return;
+  const key = "comicreader-comments-v1:" + String(item?.id || "");
+  const render = () => {
+    panel.replaceChildren();
+    const title = document.createElement("h3"); title.textContent = "Comentários"; panel.appendChild(title);
+    const form = document.createElement("form"); form.style.cssText = "display:flex;gap:8px;margin:10px 0";
+    const input = document.createElement("textarea"); input.rows = 2; input.maxLength = 1000; input.required = true; input.placeholder = "Escreva um comentário…"; input.setAttribute("aria-label", "Escreva um comentário"); input.style.cssText = "flex:1;min-width:0;padding:10px;border:1px solid #444;border-radius:8px;background:#171719;color:#fff";
+    const send = document.createElement("button"); send.type = "submit"; send.textContent = "Enviar"; form.append(input, send);
+    form.onsubmit = event => { event.preventDefault(); const text = input.value.trim(); if (!text) return; const comments = readerActionStore(key, []); comments.push({text, createdAt:new Date().toISOString()}); try { localStorage.setItem(key, JSON.stringify(comments)); render(); } catch { readerActionToast("Não foi possível salvar o comentário neste navegador."); } };
+    panel.appendChild(form);
+    const comments = readerActionStore(key, []);
+    if (!comments.length) { const empty = document.createElement("p"); empty.textContent = "Ainda não há comentários neste navegador."; panel.appendChild(empty); }
+    comments.slice().reverse().forEach(comment => { const p = document.createElement("p"); p.textContent = comment.text; p.style.cssText = "padding:10px 0;border-top:1px solid #333;white-space:pre-wrap;overflow-wrap:anywhere"; panel.appendChild(p); });
+  };
+  toggle.addEventListener("click", event => { event.preventDefault(); const opening = panel.hidden; panel.hidden = !opening; toggle.setAttribute("aria-expanded", String(opening)); toggle.textContent = opening ? "− Ocultar comentários" : "＋ Comentários"; if (opening) render(); });
+}
+function appendSeriesNavigation(item) {
+  const prev = $("#reader-series-prev"), next = $("#reader-series-next"); if (!prev || !next || !item?.seriesId) return;
+  const editions = seriesEditions(item), index = editions.findIndex(entry => String(entry.id) === String(item.id)); prev.replaceChildren(); next.replaceChildren();
+  const add = (parent, label, entry) => { const b = document.createElement("button"); b.type = "button"; b.className = "small-btn"; b.textContent = label; b.onclick = () => void openReader(entry, {routeSync:true}); parent.appendChild(b); };
+  if (index > 0) add(prev, "‹ Edição anterior", editions[index - 1]);
+  if (index >= 0 && index < editions.length - 1) add(next, "Próxima edição ›", editions[index + 1]);
+}
 function resumeCoverLoading() {}
 function setReadingMode(mode) {
   state.readingMode = mode;
