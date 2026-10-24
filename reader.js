@@ -252,7 +252,7 @@ function itemDisplayTitle(item) {
   const numericIssue = /^\d+(?:\.\d+)?$/.test(issue);
   const label = numericIssue ? "#" + issue : issue;
   const alreadyInTitle = numericIssue
-    ? new RegExp("(?:^|[^0-9])#?\\s*" + issue.replace(".", "\\\\.") + "(?:$|[^0-9])", "i").test(title)
+    ? new RegExp("(?:^|[^0-9])#?\\s*" + issue.replace(".", "[.]") + "(?:$|[^0-9])", "i").test(title)
     : title.toLocaleLowerCase().includes(issue.toLocaleLowerCase());
   return alreadyInTitle ? title : title + " " + label;
 }
