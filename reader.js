@@ -361,7 +361,7 @@ function showEmptyReader(message) {
 
   const panel = document.createElement("div");
   panel.className = "empty";
-  panel.style.cssText = "width:min(100% - 32px, 650px);margin:auto;padding:28px 20px;text-align:center;box-sizing:border-box";
+  panel.style.cssText = "width:calc(100% - 32px);max-width:650px;margin:auto;padding:28px 20px;text-align:center;box-sizing:border-box";
 
   const heading = document.createElement("h2");
   heading.textContent = "Abrir quadrinho do computador";
