@@ -21,3 +21,6 @@ html, body { width:100%; height:100%; margin:0; overflow:hidden; background:#050
  .reader-controls { gap:4px; }
  .reader-controls input { width:45px; }
 }
+
+/* Keep only the original reader navigation controls visible. */
+.reader-controls #pageInput, .reader-controls #goPage { display:none !important; }
