@@ -1,46 +1,23 @@
-/* Os estilos principais são os mesmos usados pelo leitor da Banca Digital. */
+/* Complemento mínimo para o renderer independente; a interface base vem do CSS original da Banca Digital. */
 html, body { width:100%; height:100%; margin:0; overflow:hidden; background:#050505; }
-.reader-overlay { position:fixed; inset:0; z-index:100; display:flex; flex-direction:column; background:#050505; }
-.reader-top { height:58px; min-height:58px; flex:0 0 58px; padding:0 14px; }
-.reader-top-primary, .reader-top-reading, .reader-top-actions { display:contents; }
-.reader-top-primary .reader-title { text-align:center; }
-.reader-top-reading select { max-width:100%; }
-.reader-body { flex:1 1 auto; min-height:0; overflow:hidden; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; }
-.reader-body.continuous { display:block; overflow-y:auto; overscroll-behavior:contain; }
-.reader-body.reader-grayscale img, .reader-body.reader-grayscale canvas { filter:grayscale(1); }
-.pages { width:100%; min-height:100%; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:8px; padding:8px; box-sizing:border-box; }
+.standalone-reader-pages { width:100%; min-height:100%; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:8px; padding:8px; box-sizing:border-box; }
 .page-row { display:flex; align-items:flex-start; justify-content:center; gap:8px; width:100%; }
-.page { display:block; max-width:100%; max-height:calc(100dvh - 180px); object-fit:contain; margin:auto; background:#fff; box-shadow:0 10px 40px #000; }
-.page-row.double .page { width:calc(50% - 4px); max-height:calc(100dvh - 180px); }
-.reader-body.continuous .pages { display:flex; }
+.page { display:block; max-width:100%; max-height:calc(100dvh - 120px); object-fit:contain; margin:auto; background:#fff; box-shadow:0 10px 40px #000; }
+.page-row.double .page { width:calc(50% - 4px); max-height:calc(100dvh - 120px); }
+.reader-body.continuous { display:block; overflow-y:auto; overscroll-behavior:contain; }
+.reader-body.continuous .standalone-reader-pages { display:flex; }
 .reader-body.continuous .page-row { flex:0 0 auto; margin-bottom:8px; }
 .reader-body.continuous .page { width:auto; max-width:min(100%,1100px); max-height:none; height:auto; }
 .reader-body.continuous .page-row.double .page { width:calc(50% - 4px); max-width:700px; }
+.reader-body.reader-grayscale img, .reader-body.reader-grayscale canvas { filter:grayscale(1); }
 #status { padding:20px; text-align:center; color:#a4a4ad; }
-.reader-controls { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:6px; min-width:0; }
 .reader-controls input { width:56px; min-width:0; padding:6px; }
-.reader-controls button { min-width:38px; min-height:36px; }
+.reader-controls { display:flex; align-items:center; justify-content:center; gap:6px; }
 .reader-page { min-width:68px; text-align:center; }
-.reader-footer { min-height:32px; }
-#editionMeta { color:#a4a4ad; font-size:12px; }
 #error { color:#fff; padding:10px; white-space:pre-wrap; overflow-wrap:anywhere; }
 @media(max-width:600px) {
- .reader-top { height:auto; min-height:0; max-height:none; flex:0 0 auto; display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; gap:7px; padding:8px; overflow:visible; }
- .reader-top-primary { display:grid; grid-template-columns:auto minmax(0,1fr) auto; width:100%; gap:6px; }
- .reader-top-primary .small-btn { min-height:34px; padding:6px 9px; font-size:10px; }
- .reader-top-primary .reader-title { min-width:0; font-size:11px; }
- .reader-top-reading { display:flex; flex-wrap:nowrap; width:100%; gap:5px; }
- .reader-top-reading > * { min-width:0; min-height:36px; padding:6px; font-size:10px; }
- #reading-mode-select { flex:1 1 auto; width:auto; }
+ .page { max-height:calc(100dvh - 150px); }
+ .page-row.double .page { max-height:calc(100dvh - 150px); }
  .reader-controls { gap:4px; }
- .reader-controls button { min-width:36px; min-height:34px; padding:5px; }
  .reader-controls input { width:45px; }
- .page { max-height:calc(100dvh - 190px); }
- .page-row.double .page { max-height:calc(100dvh - 190px); }
 }
-
-/* O leitor original mostra apenas navegação de páginas, sem campo numérico. */
-.reader-controls #pageInput, .reader-controls #goPage { display:none !important; }
-.reader-footer #editionMeta { display:none !important; }
-.reader-footer .reader-footer-actions:empty { display:none; }
-.reader-footer { grid-template-columns:auto minmax(0,1fr); }
