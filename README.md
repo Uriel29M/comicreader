@@ -1,20 +1,17 @@
 # ComicReader
 
-Independent reader for Banca Digital comics.
+Leitor independente para quadrinhos, separado do catálogo Banca Digital.
 
-## Migration status
+## Implementado na primeira versão
+- Interface própria, sem iframe e sem dependência do Railway.
+- Páginas JPEG/PNG/WEBP remotas, PDF e CBZ.
+- Navegação por botões, teclado e número da página.
+- Rolagem contínua e modo de duas páginas.
+- Pré-carregamento das duas páginas anteriores e seguintes, com aquecimento do restante em segundo plano.
+- Proteção por geração para descartar carregamentos atrasados e evitar mistura de páginas entre edições.
 
-This repository is the isolated destination for extracting the reader from `Uriel29M/bancadigital`. The existing production reader remains unchanged until the independent version is implemented and validated.
+## Abrir uma edição
+Aceita `?src=URL&format=pdf`, `?src=URL&format=cbz`, `?pages=BASE64URL_JSON` ou `?data=BASE64URL_JSON`.
 
-## Requirements
-
-- Keep every edition isolated so page images can never mix between editions.
-- Keep the previous two and next two pages ready for navigation.
-- Load remaining pages in the background without blocking next/previous controls.
-- Support Telegram-hosted JPEG pages, PDF, CBZ, and CBR.
-- Support single-page, double-page, and continuous-scroll modes.
-- Do not depend on Railway.
-
-## Current status
-
-Scaffold only. The reader runtime and integration contract still need to be extracted and tested before this can replace production.
+## Ainda não pronto para substituir produção
+CBR/libarchive, ponte específica para as páginas do Telegram e testes de integração com o catálogo real ainda precisam ser concluídos. O leitor antigo da Banca Digital não foi alterado nesta migração inicial.
