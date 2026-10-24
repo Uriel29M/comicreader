@@ -316,6 +316,11 @@ function normalizeItem(edition) {
   activePageUrls = Array.isArray(edition.pages)
     ? edition.pages.map(value => typeof value === "string" ? value : value?.url || value?.src || "").filter(url => /^https?:\/\//i.test(url))
     : [];
+  if (!activePageUrls.length && Array.isArray(edition.telegramPages)) {
+    activePageUrls = edition.telegramPages
+      .map(value => typeof value === "string" ? value : value?.url || value?.src || "")
+      .filter(url => /^https?:\/\//i.test(url));
+  }
   if (!activePageUrls.length && edition.telegramItemId && edition.telegramBaseUrl && Number(edition.pageCount) > 0) {
     const base = String(edition.telegramBaseUrl).replace(/\/+$/, "");
     activePageUrls = Array.from({length: Math.min(5000, Number(edition.pageCount))}, (_, index) => {
@@ -358,6 +363,9 @@ async function bootStandaloneReader() {
   const fallback = $("#reader-overlay");
   try {
     const edition = await parseEditionPayload();
+    if (edition.telegramBaseUrl && !window.BANCA_SUPABASE_URL) {
+      window.BANCA_SUPABASE_URL = String(edition.telegramBaseUrl).replace(/\/+$/, "");
+    }
     const hasPayload = Boolean(
       edition.sourceUrl || edition.fileUrl || edition.url ||
       (Array.isArray(edition.pages) && edition.pages.length) ||
