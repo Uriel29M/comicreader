@@ -288,7 +288,7 @@ function toggleComicLike(itemId) {
   readerActionToast(liked ? "Curtida removida neste navegador." : "Quadrinho curtido neste navegador.");
 }
 async function shareComic(itemId) {
-  const url = new URL(location.href); url.searchParams.set("ler", String(itemId || state.readerItemId || ""));
+  const url = new URL(BANCADIGITAL_BASE); url.searchParams.set("ler", String(itemId || state.readerItemId || ""));
   const data = {title: $("#editionTitle")?.textContent || "Banca Digital", text: "Confira este quadrinho na Banca Digital.", url: url.href};
   try { if (navigator.share) await navigator.share(data); else if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(url.href); readerActionToast("Link da edição copiado."); } else window.prompt("Copie o link da edição:", url.href); }
   catch (error) { if (error?.name !== "AbortError") window.prompt("Copie o link da edição:", url.href); }
