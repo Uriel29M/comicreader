@@ -571,7 +571,7 @@ function readerSeriesCardMarkup(item) {
   const title=String(item?.title||item?.name||item?.seriesTitle||"Quadrinho");
   const meta=[item.year,item.publisher,item.imprint].filter(Boolean).map(value=>'<span>'+escapeHTML(value)+'</span>').join("");
   return '<div class="card-wrap"><article class="card reader-series-card" data-reader-series-edition="'+escapeHTML(item.id)+'">' +
-    '<div class="cover" '+(cover?'style="background-image:url(\\''+escapeHTML(cover)+'\\')"':'')+'><div class="cover-labels">'+(issueLabel?'<span class="cover-number">'+escapeHTML(issueLabel)+'</span>':'')+'</div></div>' +
+    '<div class="cover" '+(cover?'style="background-image:url(\''+escapeHTML(cover)+'\')"':'')+'><div class="cover-labels">'+(issueLabel?'<span class="cover-number">'+escapeHTML(issueLabel)+'</span>':'')+'</div></div>' +
     '<div class="card-body"><div class="card-title">'+escapeHTML(title)+'</div><div class="card-meta">'+meta+'</div><div class="card-stats"><span>'+escapeHTML(item.year||"")+'</span></div></div></article></div>';
 }
 async function openSeriesSelection(series, editions=[], returnToCoverVariants=false, returnToFileReports=false, returnToReader=null, allowHiddenPreview=false, forcePage=false) {
