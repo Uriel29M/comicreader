@@ -3,12 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#09090b">
+  <meta name="theme-color" content="#050505">
   <title>Leitor — Banca Digital</title>
-<link rel="stylesheet" href="./reader.css?v=reader-only-20261024">
+  <meta name="description" content="Leitor de quadrinhos da Banca Digital.">
+  <link rel="stylesheet" href="https://uriel29m.github.io/bancadigital/css/style.css?v=2.2.10.267-telegram-minimize-click-through">
 </head>
 <body>
-  <section class="reader-overlay" aria-label="Leitor de quadrinhos">
+  <section class="reader-overlay" id="reader-overlay" aria-label="Leitor de quadrinhos">
     <div class="reader-top">
       <div class="reader-top-primary">
         <button class="small-btn" data-close-reader id="closeReader" type="button">← Voltar</button>
@@ -22,33 +23,28 @@
           <option value="continuous-scroll">Rolagem contínua</option>
         </select>
         <button class="small-btn" id="reading-direction-btn" type="button" hidden>↔ Ocidental</button>
-        <button class="small-btn" id="toggleCover" type="button" hidden>Ignorar capa</button>
-        <button class="small-btn" data-toggle-grayscale id="toggleGrayscale" type="button">Preto e branco</button>
-        <button class="small-btn" id="fitMode" type="button" data-reader-zoom>Ajustar</button>
+        <button class="small-btn" id="toggleCover" data-toggle-cover type="button" hidden>Ignorar capa</button>
+        <button class="small-btn" id="toggleGrayscale" data-toggle-grayscale type="button">Preto e branco</button>
+        <button class="small-btn" id="fitMode" data-reader-zoom type="button">Zoom</button>
       </div>
       <div class="reader-top-actions"></div>
     </div>
-    <div id="reader-body" class="reader-body" aria-label="Páginas da edição">
-      <div id="status" class="reader-loading"><span class="reader-loading-label">Preparando leitor…</span></div>
-      <div id="pages" class="pages"></div>
-    </div>
+    <div id="reader-body" class="reader-body" aria-label="Páginas da edição"></div>
     <div class="reader-bottom-controls">
       <div class="reader-series-controls reader-series-prev" id="reader-series-prev"></div>
       <div class="reader-controls" id="reader-controls">
-        <button id="previous" type="button" aria-label="Página anterior">‹</button>
-        <span id="pageCounter" class="reader-page">— / —</span>
-        <input id="pageInput" aria-label="Ir para página" type="number" min="1" value="1">
-        <button id="goPage" type="button">Ir</button>
-        <button id="next" type="button" aria-label="Próxima página">›</button>
+        <button id="previous" type="button" aria-label="Página anterior" disabled>‹</button>
+        <span id="pageCounter" class="reader-page">O primeiro carregamento costuma ser demorado.</span>
+        <button id="next" type="button" aria-label="Próxima página" disabled>›</button>
       </div>
       <div class="reader-series-controls reader-series-next" id="reader-series-next"></div>
     </div>
     <div class="reader-footer">
       <span></span>
-      <div class="reader-footer-actions"><span id="editionMeta">PDF · CBZ · CBR · imagens</span></div>
+      <div class="reader-footer-actions"><span id="editionMeta"></span></div>
       <div class="reader-error" id="error" hidden></div>
     </div>
   </section>
-  <script type="module" src="./reader.js?v=reader-only-20261024"></script>
+  <script type="module" src="./reader.js?v=reader-original-ui-20261023-r1"></script>
 </body>
 </html>
