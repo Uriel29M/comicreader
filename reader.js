@@ -242,7 +242,21 @@ function navigate() { location.href = BANCADIGITAL_BASE; }
 function currentRouteHistoryIndex() { return Math.max(0, history.length - 1); }
 function prioritizeReaderLoading() {}
 function recordComicRead() {}
-function itemDisplayTitle(item) { return String(item?.title || item?.name || "Quadrinho"); }
+function itemDisplayTitle(item) {
+  const title = String(item?.title || item?.name || "Quadrinho").trim();
+  const issueSource = item?.issue != null && String(item.issue).trim()
+    ? item
+    : {...item, issue: item?.issueNumber ?? item?.editionNumber ?? item?.number ?? ""};
+  const issue = String(seriesIssueDisplay(issueSource) || "").trim();
+  if (!issue) return title;
+  const label = /^\d+(?:\.\d+)?$/.test(issue) ? "#" + issue : issue;
+  const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, "\\function itemDisplayTitle(item) { return String(item?.title || item?.name || "Quadrinho"); }");
+  const alreadyInTitle = /^\d+(?:\.\d+)?$/.test(issue)
+    ? new RegExp("(?:^|[^\\p{L}\\p{N}])#?\\s*" + escapeRegExp(issue) + "(?:$|[^\\p{L}\\p{N}])", "iu").test(title)
+    : title.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase()
+      .includes(issue.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase());
+  return alreadyInTitle ? title : title + " " + label;
+}
 function shouldSkipCover() { return localStorage.getItem("readerSkipCover") === "true"; }
 function progressFor(item) {
   try { return JSON.parse(localStorage.getItem("reader-progress:" + String(item?.id || "")) || "null"); } catch { return null; }
