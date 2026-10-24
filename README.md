@@ -2,16 +2,18 @@
 
 Leitor independente para quadrinhos, separado do catálogo Banca Digital.
 
-## Implementado na primeira versão
+## Recursos implementados
 - Interface própria, sem iframe e sem dependência do Railway.
-- Páginas JPEG/PNG/WEBP remotas, PDF e CBZ.
-- Navegação por botões, teclado e número da página.
-- Rolagem contínua e modo de duas páginas.
-- Pré-carregamento das duas páginas anteriores e seguintes, com aquecimento do restante em segundo plano.
-- Proteção por geração para descartar carregamentos atrasados e evitar mistura de páginas entre edições.
+- Páginas remotas JPEG/PNG/WEBP, PDF, CBZ e CBR/RAR.
+- Leitura de páginas JPEG servidas pelo endpoint de imagens do Telegram/Supabase.
+- Navegação por botões e teclado; modos de rolagem contínua e duas páginas.
+- Mantém as duas páginas anteriores e seguintes prioritárias e aquece as demais em segundo plano.
+- Descarta carregamentos de gerações antigas para evitar mistura entre edições.
 
-## Abrir uma edição
-Aceita `?src=URL&format=pdf`, `?src=URL&format=cbz`, `?pages=BASE64URL_JSON` ou `?data=BASE64URL_JSON`.
+## Parâmetros de entrada
+- `?src=URL&format=pdf|cbz|cbr`
+- `?pages=BASE64URL_JSON` para uma lista de URLs de páginas.
+- `?data=BASE64URL_JSON` para um objeto de edição. Veja `docs/integration.md`.
 
-## Ainda não pronto para substituir produção
-CBR/libarchive, ponte específica para as páginas do Telegram e testes de integração com o catálogo real ainda precisam ser concluídos. O leitor antigo da Banca Digital não foi alterado nesta migração inicial.
+## Atenção
+O leitor independente ainda precisa ser testado com arquivos reais e ligado ao catálogo da Banca Digital. A produção antiga permanece intacta até validar a integração e a publicação do site.
