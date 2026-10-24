@@ -12,9 +12,9 @@
   <section class="reader-overlay" aria-label="Leitor de quadrinhos">
     <div class="reader-top">
       <div class="reader-top-primary">
-        <button class="small-btn" id="closeReader" type="button">← Voltar</button>
+        <button class="small-btn" data-close-reader id="closeReader" type="button">← Voltar</button>
         <div class="reader-title" id="editionTitle">Carregando edição…</div>
-        <button class="small-btn" id="readerHome" type="button">Início</button>
+        <button class="small-btn" data-reader-home id="readerHome" type="button">Início</button>
       </div>
       <div class="reader-top-reading">
         <select class="small-btn" id="reading-mode-select" aria-label="Modo de leitura">
@@ -24,15 +24,15 @@
         </select>
         <button class="small-btn" id="reading-direction-btn" type="button" hidden>↔ Ocidental</button>
         <button class="small-btn" id="toggleCover" type="button" hidden>Ignorar capa</button>
-        <button class="small-btn" id="toggleGrayscale" type="button">Preto e branco</button>
+        <button class="small-btn" data-toggle-grayscale id="toggleGrayscale" type="button">Preto e branco</button>
         <button class="small-btn" id="fitMode" type="button" data-reader-zoom>Ajustar</button>
       </div>
       <div class="reader-top-actions"></div>
     </div>
-    <main id="reader" class="reader-body" aria-label="Páginas da edição">
+    <div id="reader-body" class="reader-body" aria-label="Páginas da edição">
       <div id="status" class="reader-loading"><span class="reader-loading-label">Preparando leitor…</span></div>
       <div id="pages" class="pages"></div>
-    </main>
+    </div>
     <div class="reader-bottom-controls">
       <div class="reader-series-controls reader-series-prev" id="reader-series-prev"></div>
       <div class="reader-controls" id="reader-controls">
@@ -50,6 +50,6 @@
       <div class="reader-comments" id="error" hidden></div>
     </div>
   </section>
-  <script type="module" src="./reader.js?v=2"></script>
+  <script type="module" src="./reader.js?v=3"></script>
 </body>
 </html>
