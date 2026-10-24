@@ -675,7 +675,7 @@ async function bootStandaloneReader() {
       edition.telegramPages
     );
     if (!hasPayload) {
-      showEmptyReader("Abra uma edição da Banca Digital para começar a leitura.");
+      showEmptyReader();
       $("#reading-mode-select")?.setAttribute("disabled", "");
       return;
     }
@@ -1045,15 +1045,16 @@ function openReader(item, options = {}) {
     };
     closeReaderButton.onclick = () => {
       cleanupReader();
-      if (readerExitToHome) {
-        readerExitToHome = false;
-        navigate({ pagina: state.session?.offline ? "downloads" : "" }, true);
-        return;
-      }
       if (item.local || options.standalone) {
+        readerExitToHome = false;
         showEmptyReader(item.local
           ? "Arquivo fechado. Escolha outro arquivo do computador ou cole um link da Banca Digital."
           : "Edição fechada. Cole outro link da Banca Digital ou escolha um arquivo do computador.");
+        return;
+      }
+      if (readerExitToHome) {
+        readerExitToHome = false;
+        navigate({ pagina: state.session?.offline ? "downloads" : "" }, true);
         return;
       }
       // A rota do leitor já foi adicionada ao histórico ao abrir o gibi.
