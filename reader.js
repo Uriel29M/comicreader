@@ -195,7 +195,7 @@ function loadLibarchiveModule() {
 }
 function loadReaderFormatRenderers() {
   if (!readerFormatRenderersPromise) {
-    readerFormatRenderersPromise = import(appAssetUrl("js/reader-formats.js?v=2-telegram-pages"))
+    readerFormatRenderersPromise = import("./reader-formats.js?v=original-banca-renderers-20261023")
       .then(module => module.createReaderFormats({
         $, READER_END_PAGE_URL, appAssetUrl, createArchivePageCache,
         deleteReaderFileCache, ensureReaderDependency, escapeHTML,
@@ -228,6 +228,7 @@ function downloaded() { return null; }
 function openDownloaded() {}
 function setSection() {}
 function navigate() { location.href = BANCADIGITAL_BASE; }
+function currentRouteHistoryIndex() { return Math.max(0, history.length - 1); }
 function prioritizeReaderLoading() {}
 function recordComicRead() {}
 function itemDisplayTitle(item) { return String(item?.title || item?.name || "Quadrinho"); }
@@ -794,7 +795,7 @@ function openReader(item, options = {}) {
       event.preventDefault();
 
       try {
-        const imageUrl = new URL("assets/Baixarpaginas.jpg", document.baseURI).href;
+        const imageUrl = new URL("assets/Baixarpaginas.jpg", BANCADIGITAL_BASE).href;
         const response = await fetch(imageUrl, { cache: "no-store" });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const imageBlob = await response.blob();
