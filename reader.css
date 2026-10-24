@@ -1,26 +1,120 @@
-/* Complemento mínimo para o renderer independente; a interface base vem do CSS original da Banca Digital. */
-html, body { width:100%; height:100%; margin:0; overflow:hidden; background:#050505; }
-.standalone-reader-pages { width:100%; min-height:100%; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:8px; padding:8px; box-sizing:border-box; }
-.page-row { display:flex; align-items:flex-start; justify-content:center; gap:8px; width:100%; }
-.page { display:block; max-width:100%; max-height:calc(100dvh - 120px); object-fit:contain; margin:auto; background:#fff; box-shadow:0 10px 40px #000; }
-.page-row.double .page { width:calc(50% - 4px); max-height:calc(100dvh - 120px); }
-.reader-body.continuous { display:block; overflow-y:auto; overscroll-behavior:contain; }
-.reader-body.continuous .standalone-reader-pages { display:flex; }
-.reader-body.continuous .page-row { flex:0 0 auto; margin-bottom:8px; }
-.reader-body.continuous .page { width:auto; max-width:min(100%,1100px); max-height:none; height:auto; }
-.reader-body.continuous .page-row.double .page { width:calc(50% - 4px); max-width:700px; }
-.reader-body.reader-grayscale img, .reader-body.reader-grayscale canvas { filter:grayscale(1); }
-#status { padding:20px; text-align:center; color:#a4a4ad; }
-.reader-controls input { width:56px; min-width:0; padding:6px; }
-.reader-controls { display:flex; align-items:center; justify-content:center; gap:6px; }
-.reader-page { min-width:68px; text-align:center; }
-#error { color:#fff; padding:10px; white-space:pre-wrap; overflow-wrap:anywhere; }
-@media(max-width:600px) {
- .page { max-height:calc(100dvh - 150px); }
- .page-row.double .page { max-height:calc(100dvh - 150px); }
- .reader-controls { gap:4px; }
- .reader-controls input { width:45px; }
+/* O visual do leitor vem do CSS original da Banca Digital. Este arquivo só integra
+   o renderer independente às classes e à geometria usadas pelo leitor original. */
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #050505;
 }
-
-/* Keep only the original reader navigation controls visible. */
-.reader-controls #pageInput, .reader-controls #goPage { display:none !important; }
+#pages.pages {
+  display: contents;
+}
+#pages.pages.image-continuous-scroll-container {
+  display: flex;
+  overflow-y: auto;
+  overflow-x: hidden;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 20px;
+  gap: 16px;
+  background: #000;
+  overscroll-behavior: contain;
+}
+.image-page-wrapper {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  max-width: 100%;
+  height: auto;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .2);
+}
+.image-page-wrapper .reader-image {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: none;
+  margin: 0;
+  box-shadow: none;
+}
+.reader-double-page {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 0;
+  margin: auto;
+}
+.reader-double-page .reader-image {
+  display: block;
+  width: calc(50% - 4px);
+  max-width: 49vw;
+  max-height: calc(100vh - 95px);
+  object-fit: contain;
+  margin: auto;
+}
+#status {
+  position: absolute;
+  z-index: 5;
+  top: 50%;
+  left: 50%;
+  max-width: min(90%, 720px);
+  transform: translate(-50%, -50%);
+  padding: 14px 18px;
+  color: #a4a4ad;
+  text-align: center;
+  background: rgba(13, 13, 15, .88);
+  border: 1px solid #29292f;
+  border-radius: 8px;
+  pointer-events: none;
+}
+#status[hidden] { display: none !important; }
+.reader-body.reader-grayscale { filter: grayscale(1); }
+.reader-body.reader-gesture-zoom #pages > .reader-image,
+.reader-body.reader-gesture-zoom #pages > .reader-double-page,
+.reader-body.reader-gesture-zoom #pages.image-continuous-scroll-container {
+  transform: translate(var(--reader-pan-x, 0px), var(--reader-pan-y, 0px)) scale(var(--reader-zoom, 1));
+  transform-origin: var(--reader-origin-x, 50%) var(--reader-origin-y, 50%);
+  transition: transform .16s ease-out;
+  will-change: transform;
+}
+.reader-body.reader-gesture-zoom { touch-action: none; cursor: grab; }
+.reader-body.reader-gesture-zoom:active { cursor: grabbing; }
+.reader-body.reader-gesture-zoom.reader-panning #pages > *,
+.reader-body.reader-gesture-zoom.reader-panning #pages img { transition: none; }
+.reader-controls input { width: 56px; min-width: 0; padding: 6px; }
+.reader-controls #pageInput, .reader-controls #goPage { display: none !important; }
+.reader-page { min-width: 68px; text-align: center; }
+.reader-error {
+  grid-column: 1 / -1;
+  width: 100%;
+  box-sizing: border-box;
+  color: #fff;
+  padding: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-top: 1px solid #29292f;
+  background: #111114;
+}
+.reader-error[hidden] { display: none !important; }
+@media (max-width: 600px) {
+  #pages.pages.image-continuous-scroll-container { padding: 8px; gap: 8px; }
+  .reader-double-page { gap: 4px; }
+  .reader-double-page .reader-image { max-width: 49vw; max-height: calc(100vh - 220px); }
+  .reader-controls { gap: 4px; }
+  .reader-page { min-width: 55px; }
+}
