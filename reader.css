@@ -1,14 +1,13 @@
 /* Os estilos principais são os mesmos usados pelo leitor da Banca Digital. */
 html, body { width:100%; height:100%; margin:0; overflow:hidden; background:#050505; }
 .reader-overlay { position:fixed; inset:0; z-index:100; display:flex; flex-direction:column; background:#050505; }
-.reader-top { flex-wrap:wrap; height:auto; min-height:58px; flex:0 0 auto; padding:8px 14px; }
-.reader-top-primary, .reader-top-reading, .reader-top-actions { display:flex; align-items:center; flex-wrap:wrap; gap:7px; }
-.reader-top-primary { flex:1 1 100%; }
-.reader-top-reading { flex:1 1 auto; }
+.reader-top { height:58px; min-height:58px; flex:0 0 58px; padding:0 14px; }
+.reader-top-primary, .reader-top-reading, .reader-top-actions { display:contents; }
 .reader-top-primary .reader-title { text-align:center; }
 .reader-top-reading select { max-width:100%; }
 .reader-body { flex:1 1 auto; min-height:0; overflow:hidden; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; }
 .reader-body.continuous { display:block; overflow-y:auto; overscroll-behavior:contain; }
+.reader-body.reader-grayscale img, .reader-body.reader-grayscale canvas { filter:grayscale(1); }
 .pages { width:100%; min-height:100%; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:8px; padding:8px; box-sizing:border-box; }
 .page-row { display:flex; align-items:flex-start; justify-content:center; gap:8px; width:100%; }
 .page { display:block; max-width:100%; max-height:calc(100dvh - 180px); object-fit:contain; margin:auto; background:#fff; box-shadow:0 10px 40px #000; }
@@ -26,7 +25,7 @@ html, body { width:100%; height:100%; margin:0; overflow:hidden; background:#050
 #editionMeta { color:#a4a4ad; font-size:12px; }
 #error { color:#fff; padding:10px; white-space:pre-wrap; overflow-wrap:anywhere; }
 @media(max-width:600px) {
- .reader-top { gap:7px; padding:8px; }
+ .reader-top { height:auto; min-height:0; max-height:none; flex:0 0 auto; display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; gap:7px; padding:8px; overflow:visible; }
  .reader-top-primary { display:grid; grid-template-columns:auto minmax(0,1fr) auto; width:100%; gap:6px; }
  .reader-top-primary .small-btn { min-height:34px; padding:6px 9px; font-size:10px; }
  .reader-top-primary .reader-title { min-width:0; font-size:11px; }
