@@ -38,3 +38,9 @@ html, body { width:100%; height:100%; margin:0; overflow:hidden; background:#050
  .page { max-height:calc(100dvh - 190px); }
  .page-row.double .page { max-height:calc(100dvh - 190px); }
 }
+
+/* O leitor original mostra apenas navegação de páginas, sem campo numérico. */
+.reader-controls #pageInput, .reader-controls #goPage { display:none !important; }
+.reader-footer #editionMeta { display:none !important; }
+.reader-footer .reader-footer-actions:empty { display:none; }
+.reader-footer { grid-template-columns:auto minmax(0,1fr); }
