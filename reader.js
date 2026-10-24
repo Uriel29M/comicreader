@@ -344,7 +344,7 @@ function normalizeItem(edition) {
       return u.href;
     });
   }
-  const sourceUrl = String(edition.sourceUrl || edition.fileUrl || edition.url || "");
+  const sourceUrl = String(edition.fileUrl || edition.url || edition.sourceUrl || "");
   const id = String(edition.id || edition.telegramItemId || "external-edition");
   activeEditionForPageUrls = id;
   window.BancaTelegramPages = {
@@ -647,11 +647,13 @@ async function openBancaEditionLink(value) {
   }
   const hasTelegramPages = Array.isArray(item.telegramPages) && item.telegramPages.length > 0;
   const hasTelegramFile = Boolean(item.telegramUrl && item.id && window.BANCA_SUPABASE_URL);
-  const hasSource = Boolean(item.sourceUrl || item.fileUrl || item.url || hasTelegramPages || hasTelegramFile);
+  const staticDirectSource = item.sourceUrl && /\.(pdf|cbz|cbr|jpe?g|png|webp|gif)(?:[?#]|$)/i.test(String(item.sourceUrl));
+  const hasSource = Boolean(item.fileUrl || item.url || staticDirectSource || hasTelegramPages || hasTelegramFile);
   if (!hasSource) {
     throw new Error("A edição foi encontrada, mas não tem arquivo nem páginas do Telegram cadastrados para abrir.");
   }
-  const normalized = normalizeItem({...item, local:false});
+  const directFile = String(item.fileUrl || item.url || (staticDirectSource ? item.sourceUrl : "") || "");
+  const normalized = normalizeItem({...item, sourceUrl:directFile, fileUrl:directFile, url:directFile, local:false});
   // A tela inicial permanece atrás do leitor; o botão Voltar retorna ao campo de link.
   state.readerItemId = normalized.id;
   readerIsOpen = false;
