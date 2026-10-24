@@ -1749,6 +1749,12 @@ function openReader(item, options = {}) {
       readerContentReady = true;
       updateReadButtonAvailability();
     };
+    // Capture image load because the final-page card and some archive renderers
+    // finish by appending an image without another page-change callback.
+    body.addEventListener("load", event => {
+      const image = event.target;
+      if (image?.tagName === "IMG" && image.complete && image.naturalWidth > 0) markReaderReady();
+    }, true);
     toggleReadButton?.addEventListener("click", async event => {
       const button = event.currentTarget;
       if (!readerContentReady || !readStatusReady || button.dataset.savingRead === "true") return;
