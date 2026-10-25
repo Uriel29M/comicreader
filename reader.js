@@ -907,6 +907,11 @@ async function parseEditionPayload() {
   if (params.has("pages")) edition.pages = decode(params.get("pages"));
   return edition;
 }
+function usableTelegramImageUrl(value) {
+  const url = String(typeof value === "string" ? value : value?.imageUrl || value?.src || value?.url || "").trim();
+  // Telegram post permalinks are not raw images: render via telegram-page-image.
+  return /^https?:\/\//i.test(url) && !isTelegramPostUrl(url) ? url : "";
+}
 function normalizeItem(edition) {
   const originalTelegramPages = Array.isArray(edition.telegramPages) && edition.telegramPages.length
     ? edition.telegramPages
@@ -914,15 +919,11 @@ function normalizeItem(edition) {
   // A migrated edition stores telegramPages[].url as a t.me post permalink,
   // not as an image file. Do not use the permalink as an img src; route those
   // pages through the telegram-page-image endpoint instead.
-  const usablePageUrl = value => {
-    const url = String(typeof value === "string" ? value : value?.imageUrl || value?.src || value?.url || "").trim();
-    return /^https?:\/\//i.test(url) && !isTelegramPostUrl(url) ? url : "";
-  };
   activePageUrls = Array.isArray(edition.pages)
-    ? edition.pages.map(usablePageUrl).filter(Boolean)
+    ? edition.pages.map(usableTelegramImageUrl).filter(Boolean)
     : [];
   if (!activePageUrls.length && Array.isArray(edition.telegramPages)) {
-    activePageUrls = edition.telegramPages.map(usablePageUrl).filter(Boolean);
+    activePageUrls = edition.telegramPages.map(usableTelegramImageUrl).filter(Boolean);
   }
   if (!activePageUrls.length && edition.telegramItemId && edition.telegramBaseUrl && Number(edition.pageCount) > 0) {
     const base = String(edition.telegramBaseUrl).replace(/\/+$/, "");
