@@ -911,13 +911,18 @@ function normalizeItem(edition) {
   const originalTelegramPages = Array.isArray(edition.telegramPages) && edition.telegramPages.length
     ? edition.telegramPages
     : undefined;
+  // A migrated edition stores telegramPages[].url as a t.me post permalink,
+  // not as an image file. Do not use the permalink as an img src; route those
+  // pages through the telegram-page-image endpoint instead.
+  const usablePageUrl = value => {
+    const url = String(typeof value === "string" ? value : value?.imageUrl || value?.src || value?.url || "").trim();
+    return /^https?:\/\//i.test(url) && !isTelegramPostUrl(url) ? url : "";
+  };
   activePageUrls = Array.isArray(edition.pages)
-    ? edition.pages.map(value => typeof value === "string" ? value : value?.url || value?.src || "").filter(url => /^https?:\/\//i.test(url))
+    ? edition.pages.map(usablePageUrl).filter(Boolean)
     : [];
   if (!activePageUrls.length && Array.isArray(edition.telegramPages)) {
-    activePageUrls = edition.telegramPages
-      .map(value => typeof value === "string" ? value : value?.url || value?.src || "")
-      .filter(url => /^https?:\/\//i.test(url));
+    activePageUrls = edition.telegramPages.map(usablePageUrl).filter(Boolean);
   }
   if (!activePageUrls.length && edition.telegramItemId && edition.telegramBaseUrl && Number(edition.pageCount) > 0) {
     const base = String(edition.telegramBaseUrl).replace(/\/+$/, "");
@@ -936,7 +941,7 @@ function normalizeItem(edition) {
       const index = Number(pageNumber) - 1;
       if (String(itemId) !== String(activeEditionForPageUrls) || index < 0) return "";
       if (activePageUrls[index]) return activePageUrls[index];
-      const base = String(window.BANCA_SUPABASE_URL || "").replace(/\/+$/, "");
+      const base = String(edition.telegramBaseUrl || window.BANCA_SUPABASE_URL || "").replace(/\/+$/, "");
       if (!base) return "";
       const url = new URL(base + "/functions/v1/telegram-page-image");
       url.searchParams.set("item_id", String(itemId));
