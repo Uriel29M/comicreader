@@ -1836,8 +1836,8 @@ function openReader(item, options = {}) {
         return;
       }
 
-      // Membros comuns usam o menu de contexto nativo do navegador na imagem.
-      // Não chamar preventDefault() aqui; isso mantém opções como “Salvar imagem como...”.
+      // Reverter para bloquear o menu de contexto dos membros comuns sem baixar a página.
+      event.preventDefault();
       return;
     });
     body.classList.toggle("reader-page-swipe", ["single-page", "double-page"].includes(state.readingMode));
