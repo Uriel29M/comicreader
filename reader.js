@@ -1836,24 +1836,10 @@ function openReader(item, options = {}) {
         return;
       }
 
+      // Para membros comuns, bloquear o menu de contexto sem baixar nenhum arquivo.
+      // O download da página real permanece exclusivo para administradores.
       event.preventDefault();
-      try {
-        const imageUrl = new URL("assets/Baixarpaginas.jpg", BANCADIGITAL_BASE).href;
-        const response = await fetch(imageUrl, { cache: "no-store" });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const imageBlob = await response.blob();
-        const downloadUrl = URL.createObjectURL(new Blob([imageBlob], { type: "image/jpeg" }));
-        const downloadLink = document.createElement("a");
-        downloadLink.href = downloadUrl;
-        downloadLink.download = "Baixarpaginas.jpg";
-        document.body.appendChild(downloadLink);
-        downloadLink.click();
-        downloadLink.remove();
-        window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
-      } catch (error) {
-        console.warn("Não foi possível baixar a imagem de proteção:", error);
-        toast("Não foi possível baixar a imagem de proteção.");
-      }
+      return;
     });
     body.classList.toggle("reader-page-swipe", ["single-page", "double-page"].includes(state.readingMode));
     const toggleReadButton = $("[data-toggle-read]", overlay);
