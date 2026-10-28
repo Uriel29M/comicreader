@@ -1836,9 +1836,8 @@ function openReader(item, options = {}) {
         return;
       }
 
-      // Para membros comuns, bloquear o menu de contexto sem baixar nenhum arquivo.
-      // O download da página real permanece exclusivo para administradores.
-      event.preventDefault();
+      // Membros comuns usam o menu de contexto nativo do navegador na imagem.
+      // Não chamar preventDefault() aqui; isso mantém opções como “Salvar imagem como...”.
       return;
     });
     body.classList.toggle("reader-page-swipe", ["single-page", "double-page"].includes(state.readingMode));
