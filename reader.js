@@ -1,3 +1,5 @@
+const READER_BUILD_ID = "admin-real-page-download-20261028-r14";
+console.info("[ComicReader] build", READER_BUILD_ID);
 const BANCADIGITAL_BASE = "https://uriel29m.github.io/bancadigital/";
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -1785,11 +1787,11 @@ function openReader(item, options = {}) {
           };
 
           const parsedSource = new URL(source, document.baseURI);
-          const isTelegramPageEndpoint = /\/functions\/v1\/telegram-page-image$/.test(parsedSource.pathname);
+          const isTelegramPageEndpoint = /\/functions\/v1\/telegram-page-image\/?$/.test(parsedSource.pathname);
           if (isTelegramPageEndpoint) {
             const isCover = parsedSource.searchParams.get("cover") === "1";
             const fileName = isCover ? "capa.jpg" : "pagina-" + pageLabel + ".jpg";
-            parsedSource.searchParams.delete("cover");
+            // Preservar cover=1 para que a função reconheça downloads da capa.
             parsedSource.searchParams.set("download", "1");
             saveUrl(parsedSource.href, safeName(fileName));
             readerActionToast("Download da página solicitado: " + fileName);
