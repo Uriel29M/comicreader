@@ -1768,37 +1768,68 @@ function openReader(item, options = {}) {
         try {
           const source = image.currentSrc || image.src;
           if (!source) throw new Error("A página não possui uma URL de imagem.");
-          const response = await fetch(source, { cache: "no-store", credentials: "omit" });
-          if (!response.ok) throw new Error("HTTP " + response.status);
-          const contentType = String(response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
-          if (!contentType.startsWith("image/")) throw new Error("A origem não retornou uma imagem.");
-          const imageBlob = await response.blob();
-          if (!imageBlob.size) throw new Error("A imagem baixada está vazia.");
 
-          const extensions = {
-            "image/jpeg": "jpg",
-            "image/png": "png",
-            "image/webp": "webp",
-            "image/gif": "gif",
-            "image/avif": "avif"
+          const pageCounter = document.querySelector("#reader-controls .reader-page")?.textContent || "";
+          const label = String(image.alt || pageCounter);
+          const pageMatch = label.match(/(?:página|page)\s*(\d+)/i) || label.match(/^\s*(\d+)/);
+          const pageLabel = pageMatch ? String(pageMatch[1]).padStart(3, "0") : String(Date.now());
+          const safeName = name => name.replace(/[^a-z0-9._-]/gi, "-");
+          const saveUrl = (href, fileName, revoke = false) => {
+            const link = document.createElement("a");
+            link.href = href;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            if (revoke) window.setTimeout(() => URL.revokeObjectURL(href), 30000);
           };
-          const ext = extensions[contentType] || extension(source) || "jpg";
-          const pageMatch = String(image.alt || "").match(/(?:página|page)\s*(\d+)/i);
-          const fileName = pageMatch
-            ? "pagina-" + String(pageMatch[1]).padStart(3, "0") + "." + ext
-            : "pagina-" + Date.now() + "." + ext;
-          const downloadUrl = URL.createObjectURL(new Blob([imageBlob], { type: contentType }));
-          const downloadLink = document.createElement("a");
-          downloadLink.href = downloadUrl;
-          downloadLink.download = fileName;
-          document.body.appendChild(downloadLink);
-          downloadLink.click();
-          downloadLink.remove();
-          window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
-          readerActionToast("Página real baixada: " + fileName);
+
+          const parsedSource = new URL(source, document.baseURI);
+          const isTelegramPageEndpoint = /\/functions\/v1\/telegram-page-image$/.test(parsedSource.pathname);
+          if (isTelegramPageEndpoint) {
+            const isCover = parsedSource.searchParams.get("cover") === "1";
+            const fileName = isCover ? "capa.jpg" : "pagina-" + pageLabel + ".jpg";
+            parsedSource.searchParams.delete("cover");
+            parsedSource.searchParams.set("download", "1");
+            saveUrl(parsedSource.href, safeName(fileName));
+            readerActionToast("Download da página solicitado: " + fileName);
+            return;
+          }
+
+          const fileNameBase = "pagina-" + pageLabel;
+          if (/^(blob:|data:)/i.test(source)) {
+            saveUrl(source, fileNameBase + "." + (extension(source) || "jpg"));
+            readerActionToast("Download da página solicitado.");
+            return;
+          }
+
+          try {
+            const response = await fetch(source, { cache: "no-store", credentials: "omit", mode: "cors" });
+            if (!response.ok) throw new Error("HTTP " + response.status);
+            const contentType = String(response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+            if (!contentType.startsWith("image/")) throw new Error("A origem não retornou uma imagem (" + (contentType || "tipo desconhecido") + ").");
+            const imageBlob = await response.blob();
+            if (!imageBlob.size) throw new Error("A imagem baixada está vazia.");
+            const extensions = {
+              "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
+              "image/gif": "gif", "image/avif": "avif"
+            };
+            const ext = extensions[contentType] || extension(source) || "jpg";
+            const downloadUrl = URL.createObjectURL(new Blob([imageBlob], { type: contentType }));
+            saveUrl(downloadUrl, fileNameBase + "." + ext, true);
+            readerActionToast("Download da página solicitado.");
+          } catch (fetchError) {
+            const link = document.createElement("a");
+            link.href = source;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.click();
+            readerActionToast("A origem bloqueou o download automático. A imagem real foi aberta para salvar manualmente.");
+            console.warn("[ComicReader] Fetch direto bloqueado; aberta a imagem original:", fetchError);
+          }
         } catch (error) {
           console.warn("[ComicReader] Não foi possível baixar a página real:", error);
-          readerActionToast("Não foi possível baixar a página real. Verifique a conexão e tente novamente.");
+          readerActionToast("Falha ao baixar a página real: " + (error?.message || String(error)));
         }
         return;
       }
