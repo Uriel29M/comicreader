@@ -1758,9 +1758,52 @@ function openReader(item, options = {}) {
         .catch(error => { console.warn("Propagandas do leitor indisponíveis:", error); return null; });
     }
     body.addEventListener("contextmenu", async event => {
-      if (!event.target.closest("img.reader-image")) return;
-      event.preventDefault();
+      const image = event.target.closest("img.reader-image");
+      if (!image) return;
 
+      // Administradores baixam a página real. Usuários comuns continuam
+      // recebendo a imagem de proteção ao tentar salvar pelo menu de contexto.
+      if (state.profile?.plan === "admin") {
+        event.preventDefault();
+        try {
+          const source = image.currentSrc || image.src;
+          if (!source) throw new Error("A página não possui uma URL de imagem.");
+          const response = await fetch(source, { cache: "no-store", credentials: "omit" });
+          if (!response.ok) throw new Error("HTTP " + response.status);
+          const contentType = String(response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+          if (!contentType.startsWith("image/")) throw new Error("A origem não retornou uma imagem.");
+          const imageBlob = await response.blob();
+          if (!imageBlob.size) throw new Error("A imagem baixada está vazia.");
+
+          const extensions = {
+            "image/jpeg": "jpg",
+            "image/png": "png",
+            "image/webp": "webp",
+            "image/gif": "gif",
+            "image/avif": "avif"
+          };
+          const ext = extensions[contentType] || extension(source) || "jpg";
+          const pageMatch = String(image.alt || "").match(/(?:página|page)\s*(\d+)/i);
+          const fileName = pageMatch
+            ? "pagina-" + String(pageMatch[1]).padStart(3, "0") + "." + ext
+            : "pagina-" + Date.now() + "." + ext;
+          const downloadUrl = URL.createObjectURL(new Blob([imageBlob], { type: contentType }));
+          const downloadLink = document.createElement("a");
+          downloadLink.href = downloadUrl;
+          downloadLink.download = fileName;
+          document.body.appendChild(downloadLink);
+          downloadLink.click();
+          downloadLink.remove();
+          window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+          readerActionToast("Página real baixada: " + fileName);
+        } catch (error) {
+          console.warn("[ComicReader] Não foi possível baixar a página real:", error);
+          readerActionToast("Não foi possível baixar a página real. Verifique a conexão e tente novamente.");
+        }
+        return;
+      }
+
+      event.preventDefault();
       try {
         const imageUrl = new URL("assets/Baixarpaginas.jpg", BANCADIGITAL_BASE).href;
         const response = await fetch(imageUrl, { cache: "no-store" });
